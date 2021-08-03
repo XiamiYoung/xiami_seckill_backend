@@ -1,0 +1,66 @@
+
+# Response Body
+DEFAULT_SUC_MESSAGE = "Operation Successful"
+SUCCESS_CODE = 200
+
+# HTTP Code
+HTTP_CODE_200 = 200
+HTTP_CODE_400 = 400
+HTTP_CODE_401 = 401
+HTTP_CODE_403 = 403
+HTTP_CODE_500 = 500
+
+# error category
+PREFIX_REST = "REST"
+ERROR_TYPE_COMMON = "1"
+ERROR_TYPE_USER = "2"
+ERROR_TYPE_SECKILL = "3"
+ERROR_TYPE_ADMIN = "4"
+
+JWT_HEADER_TOKEN_NAME = 'Authorization'
+JWT_HEADER_USER_NAME = 'Logged-In-User'
+JWT_HEADER_TOKEN_HEADER_NAME = 'Auth-Token'
+JWT_AUTHZ_TYPE = 'Bearer'
+
+# Default Timestamp Pattern
+DATETIME_STR_PATTERN = "%Y-%m-%d %H:%M:%S.%f"
+
+# Redis Cache
+
+# 60 sec
+DEFAULT_CACHE_TTL = 60
+# 24 hour
+DEFAULT_CACHE_STATUS_TTL = 86400
+# 24 hour
+DEFAULT_CACHE_SECKILL_INFO_TTL = 86400
+# 60 sec
+DEFAULT_QRCODE_TTL = 60
+
+# cache key
+SECKILL_INFO_CACHE_KEY = 'seckill_info_cache_key'
+
+# JD constants
+JD_PC_COOKIE_NAME = "jd-pc-cookies"
+JD_MOBILE_COOKIE_NAME = "jd-mobile-cookies"
+
+# RSA Key
+RSA_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDC7kw8r6tq43pwApYvkJ5lalja
+N9BZb21TAIfT/vexbobzH7Q8SUdP5uDPXEBKzOjx2L28y7Xs1d9v3tdPfKI2LR7P
+AzWBmDMn8riHrDDNpUpJnlAGUqJG9ooPn8j7YNpcxCa1iybOlc2kEhmJn5uwoanQ
+q+CA6agNkqly2H4j6wIDAQAB
+-----END PUBLIC KEY-----"""
+
+# Timeout
+DEFAULT_TIMEOUT = 1
+
+# User Agent
+DEFAULT_MOBILE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.85 Mobile Safari/537.36'
+
+# Execution status
+ARRANGEMENT_EXEC_STATUS_PLANNED = 'planned'
+ARRANGEMENT_EXEC_STATUS_RUNNING = 'running'
+ARRANGEMENT_EXEC_STATUS_CANCELLED = 'cancelled'
+ARRANGEMENT_EXEC_STATUS_SUCCEEDED = 'succeeded'
+ARRANGEMENT_EXEC_STATUS_FAILED = 'failed'
+ARRANGEMENT_EXEC_STATUS_ERROR = 'error'

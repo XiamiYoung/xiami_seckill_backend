@@ -1,0 +1,10 @@
+Django==3.2.5
+bs4==0.0.1
+requests>=2.20.0
+pycryptodome==3.6.6
+channels
+django-cors-headers
+PyJWT
+random_user_agent
+attrs==19.3.0
+django-redis

@@ -1,0 +1,108 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+from daos.db.user_dao import UserDao
+from daos.db.jd_user_dao import JDUserDao
+from daos.db.jd_order_dao import JDOrderDao
+from config.error_dict import error_dict
+from exception.restful_exception import RestfulException
+
+from utils.util import (
+    str_to_json,
+)
+
+class UserService(object):
+    def __init__(self):
+        self.user_dao = UserDao()
+        self.jd_user_dao = JDUserDao()
+        self.jd_order_dao = JDOrderDao()
+
+    def login_with_username_password(self, data, is_return_model=False):
+        username = data.get('userName')
+        password = data.get('password')
+        login_user_qs = self.user_dao.find_by_username_password(username, password)
+        user_count = login_user_qs.count()
+        if user_count == 0:
+            return {}
+        if user_count > 1:
+            exception = RestfulException(error_dict['USER']['LOGIN_CRED_DUPLICATED'])
+            raise exception
+
+        if is_return_model:
+            return login_user_qs.first()
+        else:
+            return login_user_qs.first().to_dict(exclude=['password'])
+        
+    def find_user_by_username(self, user_name, is_return_model=False):
+        user_qs = self.user_dao.find_by_username(user_name)
+        user_count = user_qs.count()
+        if user_count == 0:
+            return {}
+        if user_count > 1:
+            exception = RestfulException(error_dict['USER']['USER_DUPLICATED'])
+            raise exception
+        if is_return_model:
+            return user_qs.first()
+        else:
+            return user_qs.first().to_dict()
+
+    def find_jd_user_by_nick_name(self, nick_name, is_return_model=False):
+        jd_user_qs = self.jd_user_dao.find_by_nick_name(nick_name)
+        user_count = jd_user_qs.count()
+        if user_count == 0:
+            return {}
+        if user_count > 1:
+            exception = RestfulException(error_dict['USER']['USER_DUPLICATED'])
+            raise exception
+        if is_return_model:
+            return jd_user_qs.first()
+        else:
+            return jd_user_qs.first().to_dict()
+
+    def find_jd_user_cookies_by_username_and_nick_name(self, user_name, nick_name):
+        login_user_model = self.find_user_by_username(user_name, is_return_model=True)
+        jd_user_list = list(login_user_model.jduser_set.all().values())
+        for jd_user in jd_user_list:
+            if jd_user['nick_name'] == nick_name:
+                return jd_user['pc_cookie_str'], jd_user['mobile_cookie_str']
+
+        return '', ''
+
+    def save_or_update_jd_user(self, user_name, jd_user_data, is_return_model=False):
+        user_model = self.find_user_by_username(user_name, is_return_model=True)
+        jd_user_model = self.jd_user_dao.save_or_update_jd_enduser(jd_user_data, user_model)
+        if is_return_model:
+            return jd_user_model
+        else:
+            return jd_user_model.to_dict(exclude=['pc_cookie_str','mobile_cookie_str'])
+
+    def delete_jd_user_by_nick_name(self, user_name, nick_name):
+        login_user_model = self.find_user_by_username(user_name, is_return_model=True)
+        jd_user_list = list(login_user_model.jduser_set.all().values())
+        for jd_user in jd_user_list:
+            if jd_user['nick_name'] == nick_name:
+                self.jd_user_dao.delete_by_id(jd_user['id'])
+
+    def save_jd_order(self, user_name, order_data, is_return_model=True):
+        login_user_model = self.find_user_by_username(user_name, is_return_model=True)
+        jd_order_model = self.jd_order_dao.save_jd_order(order_data, login_user_model)
+        if is_return_model:
+            return jd_order_model
+        else:
+            return jd_order_model.to_dict()
+
+    def find_jd_orders_by_username(self, user_name):
+        login_user_model = self.find_user_by_username(user_name, is_return_model=True)
+        jd_order_list = list(login_user_model.jdorder_set.all().order_by('-created_ts').values())
+        jd_order_data_list = []
+        for order_item in jd_order_list:
+            jd_order_data_list.append({
+                'nick_name': order_item['nick_name'],
+                'order_id': order_item['order_id'],
+                'order_time': order_item['order_time'],
+                'sum_price': order_item['sum_price'],
+                'addr_name': order_item['addr_name'],
+                'addr': order_item['addr'],
+                'item_info_array': str_to_json(order_item['item_info_array']),
+            })
+        return jd_order_data_list
