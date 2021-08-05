@@ -11,6 +11,7 @@ import random
 import math
 import time
 from functools import wraps
+from itertools import chain
 from datetime import datetime
 from datetime import timedelta
 from base64 import b64encode
@@ -75,7 +76,7 @@ def parse_original_json(s):
     return json.loads(s)
 
 def json_to_str(json_obj):
-    return json.dumps(json_obj)
+    return json.dumps(json_obj,ensure_ascii=False)
 
 def get_tag_value(tag, key='', index=0):
     if len(tag) == 0:
@@ -354,3 +355,12 @@ def build_stream_message(message, level, *args):
     if args and len(args[0])!=0:
         return {'content': '[' + level + '][' + datetime_to_str(datetime.now()) + ']' + message.replace('%s','{}').format(*args[0])}
     return {'content': '[' + level + '][' + datetime_to_str(datetime.now()) + ']' +  message}
+
+def model_to_dict(instance):
+    opts = instance._meta
+    data = {}
+    for f in chain(opts.concrete_fields, opts.private_fields):
+        data[f.name] = f.value_from_object(instance)
+    for f in opts.many_to_many:
+        data[f.name] = [i.id for i in f.value_from_object(instance)]
+    return data

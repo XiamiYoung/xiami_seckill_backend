@@ -4,6 +4,8 @@
 from daos.db.user_dao import UserDao
 from daos.db.jd_user_dao import JDUserDao
 from daos.db.jd_order_dao import JDOrderDao
+from daos.db.jd_user_arrangement_dao import JDUserArrangementDao
+
 from config.error_dict import error_dict
 from exception.restful_exception import RestfulException
 
@@ -16,6 +18,7 @@ class UserService(object):
         self.user_dao = UserDao()
         self.jd_user_dao = JDUserDao()
         self.jd_order_dao = JDOrderDao()
+        self.jd_user_arrangement_dao = JDUserArrangementDao()
 
     def login_with_username_password(self, data, is_return_model=False):
         username = data.get('userName')
@@ -106,3 +109,24 @@ class UserService(object):
                 'item_info_array': str_to_json(order_item['item_info_array']),
             })
         return jd_order_data_list
+
+    def find_jd_user_arrangement_by_username(self, user_name, is_return_model=False):
+        jd_user_arrangement_model = self.jd_user_arrangement_dao.find_jd_user_arrangement_by_username(user_name)
+        if jd_user_arrangement_model:
+            if is_return_model:
+                return jd_user_arrangement_model
+            else:
+                return jd_user_arrangement_model.to_dict()
+        else:
+            return {}
+
+    def save_or_update_jd_user_arrangement(self, user_name, jd_user_arrangement_data, is_return_model=False):
+        user_model = self.find_user_by_username(user_name, is_return_model=True)
+        jd_user_arrangement_model = self.jd_user_arrangement_dao.save_or_update_jd_user_arrangement(jd_user_arrangement_data, user_model)
+        if is_return_model:
+            return jd_user_arrangement_model
+        else:
+            return jd_user_arrangement_model.to_dict()
+
+    def update_leading_time(self, nick_name, leading_time):
+        self.jd_user_dao.update_leading_time(nick_name, leading_time)

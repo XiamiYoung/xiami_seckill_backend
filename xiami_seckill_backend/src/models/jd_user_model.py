@@ -22,3 +22,4 @@ class JDUser(BaseModel):
     mobile_cookie_ts_label = models.CharField(max_length=100, blank=True, default='')
     mobile_cookie_expire_ts = models.CharField(max_length=100, blank=True, default='')
     mobile_cookie_expire_ts_label = models.CharField(max_length=100, blank=True, default='')
+    leading_time = models.CharField(max_length=10, blank=True, default='')

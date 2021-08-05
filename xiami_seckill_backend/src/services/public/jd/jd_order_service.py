@@ -25,6 +25,7 @@ from utils.timer import Timer
 import logging
 from services.public.common.user_service import UserService
 from daos.cache.redis import CacheDao
+import redis_lock
 from config.constants import (
     DEFAULT_TIMEOUT,
     DEFAULT_MOBILE_USER_AGENT,
@@ -36,7 +37,9 @@ from config.constants import (
     ARRANGEMENT_EXEC_STATUS_ERROR,
     DEFAULT_CACHE_STATUS_TTL,
     DEFAULT_CACHE_SECKILL_INFO_TTL,
-    SECKILL_INFO_CACHE_KEY
+    SECKILL_INFO_CACHE_KEY,
+    LOCK_KEY_SECKILL_ARRANGEMENT,
+    LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT
 )
 from utils.util import (
     check_login,
@@ -2694,7 +2697,7 @@ class JDService(object):
 
     def pre_order_cart_action(self):
         # 无法添加购物车商品，抢购开始后再次尝试添加
-        if not self.is_marathon_mode and not self.has_presale_product:
+        if not self.is_marathon_mode:
             # 提前添加目标商品到购物车
             self.log_stream_info('添加目标商品到购物车')
             # self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
@@ -2705,43 +2708,6 @@ class JDService(object):
 
     @fetch_latency
     def create_temp_order_type_one(self):
-        sleep_interval = 1
-        sku_id = self.target_sku_id
-        num = self.target_sku_num
-
-        url = 'https://m.jingxi.com/deal/confirmorder/main'
-        headers = {
-            'User-Agent': self.mobile_user_agent
-        }
-
-        payload = {
-            'scene': 'jd',
-            'isCanEdit': 1,
-            'lg': 0,
-            'supm': 0,
-            'bizkey': 'pingou',
-            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
-            'type': 0,
-            'locationid': self.area_id,
-            'action': 3,
-            'bizval': 0,
-            'jxsid': self.jxsid
-        }
-        resp = self.sess.get(url, params=payload, headers=headers)
-        try:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            title = soup.find("title")
-            if not title or not title.getText() == '确认订单':
-                self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
-                time.sleep(sleep_interval)
-                self.create_temp_order_type_two()
-        except Exception as e:
-            self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
-            time.sleep(sleep_interval)
-            self.create_temp_order_type_two()
-
-    @fetch_latency
-    def create_temp_order_type_two(self):
         sleep_interval = 1
         sku_id = self.target_sku_id
         num = self.target_sku_num
@@ -2774,11 +2740,48 @@ class JDService(object):
             soup = BeautifulSoup(resp.text, 'html.parser')
             title = soup.find("title")
             if not title or not title.getText() == '确认订单':
-                self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
+                logger.info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
+                time.sleep(sleep_interval)
+                self.create_temp_order_type_two()
+        except Exception as e:
+            logger.info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
+            time.sleep(sleep_interval)
+            self.create_temp_order_type_two()
+            
+    @fetch_latency
+    def create_temp_order_type_two(self):
+        sleep_interval = 1
+        sku_id = self.target_sku_id
+        num = self.target_sku_num
+
+        url = 'https://m.jingxi.com/deal/confirmorder/main'
+        headers = {
+            'User-Agent': self.mobile_user_agent
+        }
+
+        payload = {
+            'scene': 'jd',
+            'isCanEdit': 1,
+            'lg': 0,
+            'supm': 0,
+            'bizkey': 'pingou',
+            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
+            'type': 0,
+            'locationid': self.area_id,
+            'action': 3,
+            'bizval': 0,
+            'jxsid': self.jxsid
+        }
+        resp = self.sess.get(url, params=payload, headers=headers)
+        try:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            title = soup.find("title")
+            if not title or not title.getText() == '确认订单':
+                logger.info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_one()
         except Exception as e:
-            self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
+            logger.info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_one()
 
@@ -3379,7 +3382,7 @@ class JDService(object):
                 self.log_stream_error('获取缓存秒杀信息失败, exception: %s', e)
                 return False
 
-    def batch_load_seckill(self, is_force_refresh):
+    def batch_load_seckill(self, is_force_refresh=False):
         parsed_arrange_list = []
         try:
             should_read_from_cache_flag = True
@@ -3476,7 +3479,7 @@ class JDService(object):
         return resp_json
 
     @check_login
-    def execute_arrangement(self, execution_arrangement_array, login_username, nick_name):
+    def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time):
         self.login_username = login_username
 
         # 添加运行flag
@@ -3498,13 +3501,16 @@ class JDService(object):
         # create stream
         level = 'info'
         self.cache_dao.push_to_stream(self.logger_stream, build_stream_message('初始化运行日志', level))
-        self.cache_dao.create_stream_group(self.logger_stream, self.logger_group)
+        # self.cache_dao.create_stream_group(self.logger_stream, self.logger_group)
 
         # 初始化状态
         for arrangement_item in execution_arrangement_array:
             target_time = arrangement_item.get('target_time').strip()
             # 更新分步状态
             self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_PLANNED)
+
+        if leading_time:
+            self.order_leading_in_millis = float(leading_time)
 
         # 开始分步执行
         for arrangement_item in execution_arrangement_array:
@@ -3544,21 +3550,17 @@ class JDService(object):
             else:
                 self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_FAILED)
 
-    def read_execution_log(self, login_username, nick_name):
+    def read_execution_log(self, login_username, nick_name, last_id):
         # steam message
         self.logger_stream = login_username + '_' + nick_name
         self.logger_group = login_username + '_' + nick_name
         self.logger_consumer = nick_name
         
         # read log from cache
-        message_list = self.cache_dao.read_from_stream_group(self.logger_stream, self.logger_group, self.logger_consumer)
+        # message_list = self.cache_dao.read_from_stream_group(self.logger_stream, self.logger_group, self.logger_consumer)
+        message_list = self.cache_dao.read_from_stream(self.logger_stream, last_id)
 
-        # parse log
-        log_list = []
-        for message in message_list:
-            for key in message.keys():
-                log_list.append(message[key])
-        return log_list
+        return message_list
 
     def log_stream_info(self, message, *args):
         if self.stream_enabled:
@@ -3581,80 +3583,82 @@ class JDService(object):
         return False
 
     def add_or_remove_arrangement(self, target_time, login_username, nick_name, is_add):
-        self.execution_status_cache_key = 'seckill_arrangement_' + login_username
-        arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+        try:
+            while not lock.acquire(blocking=False):
+                logger.info("用户%s等待锁%s释放", LOCK_KEY_SECKILL_ARRANGEMENT + login_username, nick_name)
+                time.sleep(0.05)
 
-        # 如果是添加sku
-        if is_add:
-            # 如果缓存不存在，初始化缓存
-            if not arrangement_status_cache_value:
-                arrangement_status_cache_value = []
+            self.execution_status_cache_key = 'seckill_arrangement_' + login_username
+            arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
 
-            # 如果用户不存在，添加用户和商品
-            if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
-                arrangement_cache_status_item = {
-                    'nick_name': nick_name,
-                    'seckill_arangement':[]
-                }
-                arrangement_cache_status_arangement_item = {
-                    'target_time': target_time,
-                    'status': ARRANGEMENT_EXEC_STATUS_PLANNED
-                }
-                arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
-                arrangement_status_cache_value.append(arrangement_cache_status_item)
+            # 如果是添加sku
+            if is_add:
+                # 如果缓存不存在，初始化缓存
+                if not arrangement_status_cache_value:
+                    arrangement_status_cache_value = []
+
+                # 如果用户不存在，添加用户和商品
+                if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
+                    arrangement_cache_status_item = {
+                        'nick_name': nick_name,
+                        'seckill_arangement':[]
+                    }
+                    arrangement_cache_status_arangement_item = {
+                        'target_time': target_time,
+                        'status': ARRANGEMENT_EXEC_STATUS_PLANNED
+                    }
+                    arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
+                    arrangement_status_cache_value.append(arrangement_cache_status_item)
+                else:
+                    # 如果用户已经存在，加入商品
+                    for index, arrangement_cache_status_item in enumerate(arrangement_status_cache_value):
+                        if arrangement_cache_status_item['nick_name'] == nick_name:
+                            arrangement_cache_status_arangement_item = {
+                                'target_time': target_time,
+                                'status': ARRANGEMENT_EXEC_STATUS_PLANNED
+                            }
+                            arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
+            # 如果是删除商品
             else:
-                # 如果用户已经存在，加入商品
-                for index, arrangement_cache_status_item in enumerate(arrangement_status_cache_value):
-                     if arrangement_cache_status_item['nick_name'] == nick_name:
-                         arrangement_cache_status_arangement_item = {
-                            'target_time': target_time,
-                            'status': ARRANGEMENT_EXEC_STATUS_PLANNED
-                         }
-                         arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
-        # 如果是删除商品
-        else:
-            # 如果缓存不存在，退出
-            if not arrangement_status_cache_value:
-                return
-            # 如果用户不存在，退出
-            elif not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
-                return
-            else:
-                # 如果用户已经存在，并且找到商品，删除
-                for index, arrangement_status_item in enumerate(arrangement_status_cache_value):
-                    if arrangement_status_item['nick_name'] == nick_name:
-                        for index_inner, arrangement_status_item_each_target_time in enumerate(arrangement_status_item['seckill_arangement']):
-                            if arrangement_status_item_each_target_time['target_time'] == target_time:
-                                del arrangement_status_item_each_target_time[index_inner]
-        # 更新缓存
-        self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
+                # 如果缓存不存在，退出
+                if not arrangement_status_cache_value:
+                    return
+                # 如果用户不存在，退出
+                elif not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
+                    return
+                else:
+                    # 如果用户已经存在，并且找到商品，删除
+                    for index, arrangement_status_item in enumerate(arrangement_status_cache_value):
+                        if arrangement_status_item['nick_name'] == nick_name:
+                            for index_inner, arrangement_status_item_each_target_time in enumerate(arrangement_status_item['seckill_arangement']):
+                                if arrangement_status_item_each_target_time['target_time'] == target_time:
+                                    del arrangement_status_item_each_target_time[index_inner]
+            # 更新缓存
+            self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
+        finally:
+            if lock:
+                lock.release()
 
     def update_arrangement_status(self, execution_arrangement_array, target_time, login_username, nick_name, status):
-        self.execution_status_cache_key = 'seckill_arrangement_' + login_username
-        arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+        try:
+            while not lock.acquire(blocking=False):
+                logger.info("等待锁%s释放", LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+                time.sleep(0.05)
 
-        if status == ARRANGEMENT_EXEC_STATUS_PLANNED:
-             if self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
-                 for index, arrangement_status_item in enumerate(arrangement_status_cache_value):
-                     if arrangement_status_item['nick_name'] == nick_name:
-                         del arrangement_status_cache_value[index]
-                         break
+            self.execution_status_cache_key = 'seckill_arrangement_' + login_username
+            arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
 
-        if not arrangement_status_cache_value:
-            arrangement_status_cache_value = []
-            arrangement_cache_status_item = {
-                'nick_name': nick_name,
-                'seckill_arangement':[]
-            }
-            for arrangement_item in execution_arrangement_array:
-                arrangement_cache_status_arangement_item = {
-                    'target_time': arrangement_item.get('target_time'),
-                    'status': ARRANGEMENT_EXEC_STATUS_PLANNED
-                }
-                arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
-            arrangement_status_cache_value.append(arrangement_cache_status_item)
-        else:
-            if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
+            if status == ARRANGEMENT_EXEC_STATUS_PLANNED:
+                if self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
+                    for index, arrangement_status_item in enumerate(arrangement_status_cache_value):
+                        if arrangement_status_item['nick_name'] == nick_name:
+                            del arrangement_status_cache_value[index]
+                            break
+
+            if not arrangement_status_cache_value:
+                arrangement_status_cache_value = []
                 arrangement_cache_status_item = {
                     'nick_name': nick_name,
                     'seckill_arangement':[]
@@ -3667,58 +3671,91 @@ class JDService(object):
                     arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
                 arrangement_status_cache_value.append(arrangement_cache_status_item)
             else:
-                for arrangement_status_item in arrangement_status_cache_value:
-                    if arrangement_status_item['nick_name'] == nick_name:
-                        if status == ARRANGEMENT_EXEC_STATUS_CANCELLED:
-                            for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
-                                if arrangement_status_item_each_target_time['target_time'] == target_time:
-                                    if arrangement_status_item_each_target_time['status'] == ARRANGEMENT_EXEC_STATUS_RUNNING:
+                if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
+                    arrangement_cache_status_item = {
+                        'nick_name': nick_name,
+                        'seckill_arangement':[]
+                    }
+                    for arrangement_item in execution_arrangement_array:
+                        arrangement_cache_status_arangement_item = {
+                            'target_time': arrangement_item.get('target_time'),
+                            'status': ARRANGEMENT_EXEC_STATUS_PLANNED
+                        }
+                        arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
+                    arrangement_status_cache_value.append(arrangement_cache_status_item)
+                else:
+                    for arrangement_status_item in arrangement_status_cache_value:
+                        if arrangement_status_item['nick_name'] == nick_name:
+                            if status == ARRANGEMENT_EXEC_STATUS_CANCELLED:
+                                for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
+                                    if arrangement_status_item_each_target_time['target_time'] == target_time:
+                                        if arrangement_status_item_each_target_time['status'] == ARRANGEMENT_EXEC_STATUS_RUNNING:
+                                            arrangement_status_item_each_target_time['status'] = status
+                            else:
+                                for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
+                                    if arrangement_status_item_each_target_time['target_time'] == target_time:
                                         arrangement_status_item_each_target_time['status'] = status
-                        else:
-                            for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
-                                if arrangement_status_item_each_target_time['target_time'] == target_time:
-                                    arrangement_status_item_each_target_time['status'] = status
 
-        self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
+            self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
+        finally:
+            if lock:
+                lock.release()
 
     def cancel_arrangement(self, execution_arrangement_array, login_username, nick_name):
-        self.execution_cache_key = login_username + '_' + nick_name + '_arrangement_running'
-        # 更新执行状态
-        execution_cache_val = {
-            'cancelled': True
-        }
-        self.cache_dao.put(self.execution_cache_key, execution_cache_val, DEFAULT_CACHE_STATUS_TTL)
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT + login_username)
+        try:
+            while not lock.acquire(blocking=False):
+                logger.info("用户%s等待锁%s释放", LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT + login_username, nick_name)
+                time.sleep(0.05)
+            # 更新执行状态
+            self.execution_cache_key = login_username + '_' + nick_name + '_arrangement_running'
+            execution_cache_val = {
+                'cancelled': True
+            }
+            self.cache_dao.put(self.execution_cache_key, execution_cache_val, DEFAULT_CACHE_STATUS_TTL)
 
-        for arrangement_item in execution_arrangement_array:
-            target_time = arrangement_item.get('target_time').strip()
-            # 更新分步状态
-            self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_CANCELLED)
+            for arrangement_item in execution_arrangement_array:
+                target_time = arrangement_item.get('target_time').strip()
+                # 更新分步状态
+                self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_CANCELLED)
+        finally:
+            if lock:
+                lock.release()
 
     def get_arrangement_status(self, login_username):
         self.execution_status_cache_key = 'seckill_arrangement_' + login_username
         return self.cache_dao.get(self.execution_status_cache_key)
 
     def delete_arrangement_item(self, login_username, target_time, nick_name):
-        self.execution_status_cache_key = 'seckill_arrangement_' + login_username
-        arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
-        if not arrangement_status_cache_value:
-            return 
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+        try:
+            while not lock.acquire(blocking=False):
+                logger.info("等待锁%s释放", LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+                time.sleep(0.05)
 
-        if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
-            return
-        else:
-            if not target_time:
-                for i, arrangement_status_item in enumerate(arrangement_status_cache_value):
-                    if arrangement_status_item['nick_name'] == nick_name:
-                        del arrangement_status_cache_value[i]
+            self.execution_status_cache_key = 'seckill_arrangement_' + login_username
+            arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
+            if not arrangement_status_cache_value:
+                return 
+
+            if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
+                return
             else:
-                for i, arrangement_status_item in enumerate(arrangement_status_cache_value):
+                if not target_time:
+                    for i, arrangement_status_item in enumerate(arrangement_status_cache_value):
                         if arrangement_status_item['nick_name'] == nick_name:
-                            for j, arrangement_status_item_each_target_time in enumerate(arrangement_status_item['seckill_arangement']):
-                                if arrangement_status_item_each_target_time['target_time'] == target_time:
-                                    del arrangement_status_item['seckill_arangement'][j]
-                                    if len(arrangement_status_item['seckill_arangement']) == 0:
-                                        del arrangement_status_cache_value[i]
-                                    break
-        self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
+                            del arrangement_status_cache_value[i]
+                else:
+                    for i, arrangement_status_item in enumerate(arrangement_status_cache_value):
+                            if arrangement_status_item['nick_name'] == nick_name:
+                                for j, arrangement_status_item_each_target_time in enumerate(arrangement_status_item['seckill_arangement']):
+                                    if arrangement_status_item_each_target_time['target_time'] == target_time:
+                                        del arrangement_status_item['seckill_arangement'][j]
+                                        if len(arrangement_status_item['seckill_arangement']) == 0:
+                                            del arrangement_status_cache_value[i]
+                                        break
+            self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
+        finally:
+            if lock:
+                lock.release()
             

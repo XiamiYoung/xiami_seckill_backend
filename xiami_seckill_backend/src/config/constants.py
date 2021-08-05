@@ -39,6 +39,10 @@ DEFAULT_QRCODE_TTL = 60
 # cache key
 SECKILL_INFO_CACHE_KEY = 'seckill_info_cache_key'
 
+# lock key
+LOCK_KEY_SECKILL_ARRANGEMENT = 'user_arrangement_lock_key'
+LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT = 'user_cencel_arrangement_lock_key'
+
 # JD constants
 JD_PC_COOKIE_NAME = "jd-pc-cookies"
 JD_MOBILE_COOKIE_NAME = "jd-mobile-cookies"

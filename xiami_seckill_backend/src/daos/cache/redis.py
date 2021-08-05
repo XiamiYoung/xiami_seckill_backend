@@ -11,6 +11,9 @@ class CacheDao(object):
     def __init__(self):
         self.redis_client = get_redis_connection("default")
 
+    def get_cache_client(self):
+        return self.redis_client
+
     def put(self, key, value, timeout=DEFAULT_CACHE_TTL):
         cache.set(key, value, timeout=timeout)
 
@@ -31,7 +34,19 @@ class CacheDao(object):
         self.redis_client.xadd(stream, fields=value)
 
     def read_from_stream(self, stream, id='0-0'):
-        return self.redis_client.xread({stream: id})
+        message_list = []
+        messages = self.redis_client.xread({stream: id})
+        if messages:
+            for id, fields in messages[0][1]:
+                for key in fields.keys():
+                    id = id.decode('utf-8')
+                    value = fields[key].decode('utf-8')
+                    ret_json = {
+                                'id':id,
+                                 key.decode('utf-8'):value
+                               }
+                message_list.append(ret_json)
+        return message_list
 
     def read_from_stream_group(self, stream, group, consumer, id='>'):
         message_list = []

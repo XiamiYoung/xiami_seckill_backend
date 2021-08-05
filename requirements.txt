@@ -8,3 +8,4 @@ PyJWT
 random_user_agent
 attrs==19.3.0
 django-redis
+python-redis-lock==3.7.0

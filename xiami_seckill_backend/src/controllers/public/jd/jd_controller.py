@@ -3,7 +3,9 @@ from django.http import HttpResponse
 from data.out.base_res_body import BaseResBody
 from django.views.decorators.csrf import csrf_exempt
 from controllers.public.jd.base.jd_base_controller import JDBaseController
-import json
+from utils.util import (
+    str_to_json
+)
 
 class JDController(JDBaseController):
 
@@ -26,7 +28,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def cancel_check_qr_code(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         cookie_token = data['cookie-token']
 
         # get JD service
@@ -49,7 +51,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def cancel_user_inpu_mobile_code(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         nick_name = data['nick_name']
         login_username = self._get_login_username(request)
 
@@ -73,7 +75,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def check_qr_scan_result(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         cookie_token = data['cookie-token']
 
         # get JD service
@@ -104,7 +106,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def wait_user_scan_qr(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         cookie_token = data['cookie-token']
         login_username = self._get_login_username(request)
 
@@ -152,7 +154,7 @@ class JDController(JDBaseController):
 
     @csrf_exempt
     def delete_jd_user(self, request):
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         nick_name = data['nick_name']
         login_username = self._get_login_username(request)
 
@@ -172,7 +174,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def submit_user_mobile_code(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         nick_name = data['nick_name']
         mobile_code = data['mobile_code']
         login_username = self._get_login_username(request)
@@ -196,7 +198,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def send_mobile_code(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         nick_name = data['nick_name']
         mobile = data['mobile']
         login_username = self._get_login_username(request)
@@ -220,7 +222,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def check_mobile_code_result(self, request):
         # read data as json
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         nick_name = data['nick_name']
         login_username = self._get_login_username(request)
 
@@ -264,7 +266,7 @@ class JDController(JDBaseController):
 
     @csrf_exempt
     def batch_load_seckill(self, request):
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         is_force_refresh = data['is_force_refresh']
         # get JD service
         jd_service = self._get_jd_service() 
@@ -283,9 +285,10 @@ class JDController(JDBaseController):
     @csrf_exempt
     def start_arrangement(self, request):
         # get data
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         arrangement_list = data['arrangement_list']
         nick_name = data['nick_name']
+        leading_time = data['leading_time']
         login_username = self._get_login_username(request)
 
         # get JD service
@@ -303,7 +306,7 @@ class JDController(JDBaseController):
                 execution_arrangement_array.append(execution_item)
 
         # call service
-        self.execute_in_thread(jd_service.execute_arrangement, (execution_arrangement_array,login_username, nick_name))
+        self.execute_in_thread(jd_service.execute_arrangement, (execution_arrangement_array,login_username, nick_name, leading_time))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -317,7 +320,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def cancel_arrangement(self, request):
         # get data
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         arrangement_list = data['arrangement_list']
         nick_name = data['nick_name']
         login_username = self._get_login_username(request)
@@ -351,7 +354,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def add_or_remove_arrangement(self, request):
         # get data
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         target_time = data['target_time']
         nick_name = data['nick_name']
         is_add = data['is_add']
@@ -392,7 +395,7 @@ class JDController(JDBaseController):
     @csrf_exempt
     def delete_arrangement_item(self, request):
         # get data
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         target_time = data['target_time']
         nick_name = data['nick_name']
         login_username = self._get_login_username(request)
@@ -415,15 +418,16 @@ class JDController(JDBaseController):
     @csrf_exempt
     def read_execution_log(self, request):
         # get data
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         nick_name = data['nick_name']
+        last_id = data['last_id']
         login_username = self._get_login_username(request)
 
         # get JD service
         jd_service = self._get_jd_service() 
 
         # call service
-        ret = jd_service.read_execution_log(login_username, nick_name)
+        ret = jd_service.read_execution_log(login_username, nick_name, last_id)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -452,22 +456,108 @@ class JDController(JDBaseController):
 
     @csrf_exempt
     def cancel_jd_order(self, request):
-        data = json.loads(request.body)
+        data = str_to_json(request.body)
         order_id = data['order_id']
         nick_name = data['nick_name']
 
         # get JD service
         jd_service = self._get_jd_service_with_cookie_after_login(request, nick_name) 
 
+        resp_body = BaseResBody().to_json_body()
+
+        # check cookie valid
+        if not jd_service.get_user_info():
+            resp_body_data = {
+                            'success': False,
+                            'msg': '用户cookie失效'
+                        }
+            resp_body['body'] = resp_body_data
+            response = JsonResponse(resp_body)
+            return response
+
         # get JD service
         result, msg = jd_service.cancel_order(order_id)
 
         # send response
-        resp_body = BaseResBody().to_json_body()
+        
         resp_body_data = {
                             'success': result,
                             'msg': msg
                         }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
+    def save_jd_user_arrangement(self, request):
+        # get data
+        data = str_to_json(request.body)
+        user_arrangement = data['user_arrangement']
+        login_username = self._get_login_username(request)
+
+        # get JD User service
+        user_service = self._get_user_service()  
+
+        # call service
+        self.execute_in_thread(user_service.save_or_update_jd_user_arrangement, (login_username, user_arrangement))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def save_jd_user_options(self, request):
+        # get data
+        data = str_to_json(request.body)
+        user_options = data['user_options']
+        nick_name = data['nick_name']
+
+        # get JD User service
+        user_service = self._get_user_service()  
+
+        # call service
+        if 'leading_time' in user_options:
+            self.execute_in_thread(user_service.update_leading_time, (nick_name, user_options['leading_time']))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def get_jd_user_arrangement(self, request):
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        user_service = self._get_user_service()  
+        jd_user_arrangement = user_service.find_jd_user_arrangement_by_username(login_username)
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+
+        if jd_user_arrangement:
+            resp_body_data = {
+                                'success': True,
+                                'user_arrangement': {
+                                    'seckill_arrangement': str_to_json(jd_user_arrangement['seckill_arrangement']),
+                                    'sku_arrangement': str_to_json(jd_user_arrangement['sku_arrangement'])
+                                }
+                            }
+        else:
+            resp_body_data = {
+                                'success': False,
+                                'user_arrangement': {}
+                            }
         resp_body['body'] = resp_body_data
         response = JsonResponse(resp_body)
 
