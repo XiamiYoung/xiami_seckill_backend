@@ -35,11 +35,13 @@ from config.constants import (
     ARRANGEMENT_EXEC_STATUS_SUCCEEDED,
     ARRANGEMENT_EXEC_STATUS_FAILED,
     ARRANGEMENT_EXEC_STATUS_ERROR,
+    DATETIME_STR_PATTERN_SHORT,
     DEFAULT_CACHE_STATUS_TTL,
     DEFAULT_CACHE_SECKILL_INFO_TTL,
     SECKILL_INFO_CACHE_KEY,
     LOCK_KEY_SECKILL_ARRANGEMENT,
-    LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT
+    LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT,
+    LOCK_KEY_CUSTOM_SKU_DATA
 )
 from utils.util import (
     check_login,
@@ -238,9 +240,9 @@ class JDService(object):
         jd_user_data['pc_cookie_status'] = True
         jd_user_data['pc_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
         jd_user_data['pc_cookie_ts'] =  get_timestamp()
-        jd_user_data['pc_cookie_ts_label'] =  datetime_to_str(get_now_datetime())
+        jd_user_data['pc_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
         jd_user_data['pc_cookie_expire_ts'] =  get_timestamp(datetime_offset_in_milliesec(get_now_datetime(), 24 * 60 * 60 * 1000)) # 24 hours
-        jd_user_data['pc_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 24 * 60 * 60 * 1000))
+        jd_user_data['pc_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
 
         jd_user_data = self.user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
         
@@ -745,9 +747,9 @@ class JDService(object):
                 jd_user_data['mobile_cookie_status'] = True
                 jd_user_data['mobile_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
                 jd_user_data['mobile_cookie_ts'] =  get_timestamp()
-                jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime())
+                jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
                 jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
-                jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000))
+                jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
                 jd_user_data['mobile'] = mobile_num
 
                 jd_user_data = self.user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
@@ -2125,7 +2127,7 @@ class JDService(object):
         sku_name = soup.find('div', {'class': 'sku-name'}).text.strip()
         return sku_name
 
-    def get_item_name(self, sku_id):
+    def get_item_info(self, sku_id):
         """获取商品名称
         :param sku_id: 商品id
         :return:
@@ -2141,14 +2143,15 @@ class JDService(object):
         resp_json = parse_json(resp.text)
 
         sku_name = resp_json[sku_id]['name']
-        return sku_name
+        imageUrl = 'https://img13.360buyimg.com/n1/' + resp_json[sku_id]['imagePath']
+        return sku_name, imageUrl
 
     def get_item_detail_info(self, sku_id, is_wait_for_limit=True):
         """获取详细信息
         :param sku_id: 商品id
         :return:
         """
-        sku_name = self.get_item_name(sku_id)
+        sku_name, imageUrl = self.get_item_info(sku_id)
 
         url = 'https://item-soa.jd.com/getWareBusiness?skuId={}'.format(sku_id)
 
@@ -2163,6 +2166,7 @@ class JDService(object):
 
         sku_info['sku_id'] = sku_id
         sku_info['sku_name'] = sku_name
+        sku_info['imageUrl'] = imageUrl
         sku_info['stock_info'] = self.stock_state_map[str(resp_json['stockInfo']['stockState'])]
         sku_info['list_price'] = resp_json['price']['m']
         sku_info['original_price'] = resp_json['price']['op']
@@ -2173,7 +2177,10 @@ class JDService(object):
         sku_info['is_oversea_product'] = False
         sku_info['is_free_delivery'] = False
 
-        sku_info['price_discount'] = str(round(float(sku_info['current_price']) / float(sku_info['original_price']), 3) * 10) + '折'
+        sku_info['price_discount'] = str(round(float(sku_info['current_price']) / float(sku_info['original_price']), 3) * 10)
+        if len(sku_info['price_discount']) > 4:
+            sku_info['price_discount'] = sku_info['price_discount'][0:4]
+        sku_info['price_discount'] = sku_info['price_discount'] + '折'
 
         if '京东' in resp_json['servicesInfoUnited']['stockInfo']['serviceInfo'] or resp_json['servicesInfoUnited']['stockInfo']['serverIcon']['wlfwIcons']:
             sku_info['is_jd_delivery'] = True
@@ -2195,12 +2202,16 @@ class JDService(object):
                 sku_info['seckill_info']['seckill_state_str'] = '秒杀结束'
                 sku_info['seckill_info']['promo_price'] = sku_info['current_price']
 
-            sku_info['seckill_info']['seckill_discount'] = str(round(float(sku_info['seckill_info']['promo_price']) / float(sku_info['original_price']), 3) * 10)  + '折'
+            sku_info['seckill_info']['seckill_discount'] = str(round(float(sku_info['seckill_info']['promo_price']) / float(sku_info['original_price']), 3) * 10)
+
+            if len(sku_info['seckill_info']['seckill_discount']) > 4:
+                sku_info['seckill_info']['seckill_discount'] = sku_info['seckill_info']['seckill_discount'][0:4]
+            sku_info['seckill_info']['seckill_discount'] = sku_info['seckill_info']['seckill_discount'] + '折'
 
             sku_info['seckill_info']['seckill_start_time_ts'] = seckill_json['startTime']
-            sku_info['seckill_info']['seckill_start_time_str'] = datetime_to_str(datetime.fromtimestamp(int(seckill_json['startTime'] / 1000 )))
+            sku_info['seckill_info']['seckill_start_time_str'] = datetime_to_str(datetime.fromtimestamp(int(seckill_json['startTime'] / 1000 )), format_pattern=DATETIME_STR_PATTERN_SHORT)
             sku_info['seckill_info']['seckill_end_time_ts'] = seckill_json['endTime']
-            sku_info['seckill_info']['seckill_end_time_str'] = datetime_to_str(datetime.fromtimestamp(int(seckill_json['endTime'] / 1000 )))
+            sku_info['seckill_info']['seckill_end_time_str'] = datetime_to_str(datetime.fromtimestamp(int(seckill_json['endTime'] / 1000 )), format_pattern=DATETIME_STR_PATTERN_SHORT)
 
         if 'yuyueInfo' in resp_json.keys():
             reserve_json = resp_json['yuyueInfo']
@@ -3726,7 +3737,7 @@ class JDService(object):
         self.execution_status_cache_key = 'seckill_arrangement_' + login_username
         return self.cache_dao.get(self.execution_status_cache_key)
 
-    def delete_arrangement_item(self, login_username, target_time, nick_name):
+    def delete_arrangement_item(self, login_username, nick_name, target_time=None):
         lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
         try:
             while not lock.acquire(blocking=False):
@@ -3758,4 +3769,20 @@ class JDService(object):
         finally:
             if lock:
                 lock.release()
-            
+
+    def add_custom_sku_info_to_cache(self, login_username, sku_data):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+        try:
+            while not lock.acquire(blocking=False):
+                logger.info("用户%s等待锁%s释放", LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
+                time.sleep(0.05)
+
+            custom_sku_data_cache_key = 'custom_sku_data_' + login_username
+            self.cache_dao.put(custom_sku_data_cache_key, sku_data, DEFAULT_CACHE_STATUS_TTL)
+        finally:
+            if lock:
+                lock.release()
+
+    def get_custom_sku_info_from_cache(self, login_username):
+        custom_sku_data_cache_key = 'custom_sku_data_' + login_username
+        return self.cache_dao.get(custom_sku_data_cache_key)

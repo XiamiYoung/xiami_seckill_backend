@@ -24,6 +24,7 @@ JWT_AUTHZ_TYPE = 'Bearer'
 
 # Default Timestamp Pattern
 DATETIME_STR_PATTERN = "%Y-%m-%d %H:%M:%S.%f"
+DATETIME_STR_PATTERN_SHORT = "%Y-%m-%d %H:%M:%S"
 
 # Redis Cache
 
@@ -42,6 +43,7 @@ SECKILL_INFO_CACHE_KEY = 'seckill_info_cache_key'
 # lock key
 LOCK_KEY_SECKILL_ARRANGEMENT = 'user_arrangement_lock_key'
 LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT = 'user_cencel_arrangement_lock_key'
+LOCK_KEY_CUSTOM_SKU_DATA = 'user_custom_sku_data_lock_key'
 
 # JD constants
 JD_PC_COOKIE_NAME = "jd-pc-cookies"

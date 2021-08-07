@@ -84,7 +84,15 @@ class UserService(object):
         jd_user_list = list(login_user_model.jduser_set.all().values())
         for jd_user in jd_user_list:
             if jd_user['nick_name'] == nick_name:
+                # delete user arrangement
+                jd_user_arrangement_model = self.find_jd_user_arrangement_by_username(user_name)
+                if jd_user_arrangement_model and jd_user_arrangement_model['seckill_arrangement']:
+                    json_seckill_arrangement = str_to_json(jd_user_arrangement_model['seckill_arrangement'])
+                    if json_seckill_arrangement[nick_name]:
+                        del json_seckill_arrangement[nick_name]
+                        self.save_or_update_jd_user_arrangement(user_name, json_seckill_arrangement)
                 self.jd_user_dao.delete_by_id(jd_user['id'])
+        
 
     def save_jd_order(self, user_name, order_data, is_return_model=True):
         login_user_model = self.find_user_by_username(user_name, is_return_model=True)

@@ -159,6 +159,7 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # call service
+        self._get_jd_service().delete_arrangement_item(login_username, nick_name)
         self._get_user_service().delete_jd_user_by_nick_name(login_username, nick_name)
 
         # send response
@@ -279,6 +280,34 @@ class JDController(JDBaseController):
         resp_body['body'] = resp_json
         response = JsonResponse(resp_body)
         
+        return response
+
+    @csrf_exempt
+    def get_sku_by_id(self, request):
+        # get data
+        data = str_to_json(request.body)
+        sku_id = data['sku_id']
+
+        # get JD service
+        jd_service = self._get_jd_service()
+
+        resp_body = BaseResBody().to_json_body()
+
+        # call service
+        try:
+            ret = jd_service.get_item_detail_info(sku_id, is_wait_for_limit=True)
+            resp_body_data = {
+                                'success': True,
+                                'sku_data': ret
+                            }
+        except Exception as e:
+            resp_body_data = {
+                                'success': False,
+                                'error': "读取商品信息失败"
+                            }
+        # send response
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
         return response
 
 
@@ -404,7 +433,7 @@ class JDController(JDBaseController):
         jd_service = self._get_jd_service()
 
         # call service
-        jd_service.delete_arrangement_item(login_username, target_time, nick_name)
+        jd_service.delete_arrangement_item(login_username, nick_name, target_time)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -415,6 +444,54 @@ class JDController(JDBaseController):
         response = JsonResponse(resp_body)
         return response
 
+    @csrf_exempt
+    def add_custom_sku_info_to_cache(self, request):
+        # get data
+        data = str_to_json(request.body)
+        sku_data = data['sku_data']
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_service = self._get_jd_service()
+
+        # call service
+        self.execute_in_thread(jd_service.add_custom_sku_info_to_cache, (login_username, sku_data))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def get_custom_sku_data(self, request):
+        # get data
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_service = self._get_jd_service()
+
+        # call service
+        sku_data = jd_service.get_custom_sku_info_from_cache(login_username)
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        if sku_data:
+            resp_body_data = {
+                                'success': True,
+                                'sku_data': sku_data
+                            }
+        else:
+            resp_body_data = {
+                                'success': False
+                            }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+        
     @csrf_exempt
     def read_execution_log(self, request):
         # get data
