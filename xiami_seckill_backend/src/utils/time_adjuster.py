@@ -2,13 +2,13 @@
 # -*- coding:utf-8 -*-
 import time
 import win32api
-from utils.log import logger
+from utils.log import Logger
 from utils.util import (
     get_now_datetime
 )
 
-def adjust_server_time(func):
-
+def adjust_server_time(func, login_username):
+    logger = Logger(login_username).set_logger()
     logger.info('===============================更新本地时间==============================')
     t_diff, t_server_real_time, t_server_datetime, t_reach, t_reach_min, t_local, t_reach_server_leading_in_millie_sec = func(True)
 

@@ -1,6 +1,11 @@
-from models.jd_user_model import JDUser
+from models.jd.jd_user_model import JDUser
 from django.db import connection
 from config.config import global_config
+from utils.token_util import (
+    encrypt_json
+)
+
+db_prop_secret = global_config.get('config', 'db_prop_secret')
 
 class JDUserDao(object):
     
@@ -15,11 +20,54 @@ class JDUserDao(object):
         jd_user = JDUser.objects.get(id = id)
         jd_user.delete()
 
-    def update_leading_time(self, nick_name, leading_time):
+    def update_jd_user_leading_time(self, nick_name, user_options):
         try:
             jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
             jd_user_model = jd_user_qs.first()
-            jd_user_model.leading_time = int(leading_time)
+            if 'leading_time' in user_options:
+                jd_user_model.leading_time = int(user_options['leading_time'])
+                jd_user_model.save()
+        finally:
+            connection.close()
+
+    def update_jd_user_pwd(self, nick_name, user_options):
+        try:
+            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_model = jd_user_qs.first()
+            if 'jd_pwd' in user_options:
+                if user_options['jd_pwd'] != '******' and user_options['jd_pwd'] is not None:
+                    jd_pwd_json = {'jd_pwd': user_options['jd_pwd']}
+                    jd_user_model.jd_pwd = encrypt_json(jd_pwd_json, db_prop_secret)
+                else:
+                    jd_user_model.jd_pwd = ''
+
+            jd_user_model.save()
+        finally:
+            connection.close()
+
+    def update_jd_user_push_token(self, nick_name, user_options):
+        try:
+            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_model = jd_user_qs.first()
+            if 'push_token' in user_options:
+                push_token_json = {'push_token': user_options['push_token']}
+                jd_user_model.push_token = encrypt_json(push_token_json, db_prop_secret)
+            else:
+                jd_user_model.push_token = ''
+
+            jd_user_model.save()
+        finally:
+            connection.close()
+
+    def update_jd_user_push_email(self, nick_name, user_options):
+        try:
+            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_model = jd_user_qs.first()
+            if 'push_email' in user_options:
+                jd_user_model.push_email = user_options['push_email']
+            else:
+                jd_user_model.push_email = ''
+
             jd_user_model.save()
         finally:
             connection.close()

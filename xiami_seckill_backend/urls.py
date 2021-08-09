@@ -16,16 +16,16 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from .src.controllers.public.jd.jd_controller import JDController
-from .src.controllers.public.common import user_controller
+from .src.controllers.public.common import login_user_controller
 from .src.controllers.site_admin import site_admin_controller
 
 jd_controller = JDController()
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('site/login', user_controller.login_with_username_password),
+    path('site/login', login_user_controller.login_with_username_password),
     path('site-admin/user/create', site_admin_controller.create_enduser),
-    path('site/jd/batch_load_seckill', jd_controller.batch_load_seckill),
+    path('site/jd/batch-load-seckill', jd_controller.batch_load_seckill),
     path('site/jd/load-qr-code', jd_controller.check_qr_code),
     path('site/jd/wait-user-scan-qr', jd_controller.wait_user_scan_qr),
     path('site/jd/get-associated-jd-users', jd_controller.get_associated_jd_users),
@@ -46,8 +46,12 @@ urlpatterns = [
     path('site/jd/cancel-jd-order', jd_controller.cancel_jd_order),
     path('site/jd/get-jd-user-arrangement', jd_controller.get_jd_user_arrangement),
     path('site/jd/save-jd-user-arrangement', jd_controller.save_jd_user_arrangement),
-    path('site/jd/save-jd-user-options', jd_controller.save_jd_user_options),
+    path('site/jd/save-jd-user-leading-time', jd_controller.save_jd_user_leading_time),
+    path('site/jd/save-jd-user-pwd', jd_controller.save_jd_user_pwd),
+    path('site/jd/save-jd-user-push-token', jd_controller.save_jd_user_push_token),
+    path('site/jd/save-jd-user-push-email', jd_controller.save_jd_user_push_email),
     path('site/jd/get-sku-by-id', jd_controller.get_sku_by_id),
     path('site/jd/add-custom-sku', jd_controller.add_custom_sku_info_to_cache),
     path('site/jd/get-custom-sku', jd_controller.get_custom_sku_data),
+    path('site/jd/delete-custom-sku', jd_controller.delete_custom_sku_info_from_cache),
 ]

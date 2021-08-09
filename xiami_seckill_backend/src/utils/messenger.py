@@ -6,26 +6,19 @@ import traceback
 import requests
 from config.error_dict import error_dict
 from exception.restful_exception import RestfulException
-from utils.log import logger
-
-from utils.util import (
-    fetch_latency
-)
-
 
 class Messenger(object):
     """消息推送类"""
 
-    def __init__(self, sc_key):
+    def __init__(self, sc_key, service_ins):
         if not sc_key:
             raise RestfulException(error_dict['USER']['SC_KEY_BLANK'])
-
         self.sc_key = sc_key
+        self.service_ins = service_ins
 
-    @fetch_latency
     def send(self, text, desp=''):
         if not text.strip():
-            logger.error('Text of message is empty!')
+            self.service_ins.log_stream_error('Text of message is empty!')
             return
 
         now_time = str(datetime.datetime.now())
@@ -37,11 +30,11 @@ class Messenger(object):
             )
             resp_json = json.loads(resp.text)
             if resp_json.get('errno') == 0:
-                logger.info('成功发送微信推送信息')
+                self.service_ins.log_stream_info('成功发送微信推送信息')
             else:
-                logger.error('Fail to send message, reason: %s', resp.text)
+                self.service_ins.log_stream_error('Fail to send message, reason: %s', resp.text)
         except requests.exceptions.RequestException as req_error:
-            logger.error('Request error: %s', req_error)
+            self.service_ins.log_stream_error('Request error: %s', req_error)
         except Exception as e:
             traceback.print_exc()
-            logger.error('Fail to send message [text: %s, desp: %s]: %s', text, desp, e)
+            self.service_ins.log_stream_error('Fail to send message [text: %s, desp: %s]: %s', text, desp, e)

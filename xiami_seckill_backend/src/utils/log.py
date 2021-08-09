@@ -3,23 +3,34 @@
 import logging
 import logging.handlers
 
-LOG_FILENAME = 'jd-assistant.log'
+from config.constants import (
+    LOG_FILENAME_PREFIX
+)
 
-logger = logging.getLogger()
+class Logger(object):
+    def __init__(self, login_username=''):
+        self.logger = logging.getLogger()
+        self.login_username = login_username
 
+    def set_logger(self):
+        self.logger.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s %(processName)s %(threadName)s %(levelname)s: %(message)s')
 
-def set_logger():
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s %(processName)s %(threadName)s %(levelname)s: %(message)s')
+        logFileName = LOG_FILENAME_PREFIX + ".log"
+        if self.login_username:
+            logFileName = LOG_FILENAME_PREFIX + "-" + self.login_username + ".log"
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+        if not self.logger.hasHandlers():
+            # file handler
+            file_handler = logging.handlers.RotatingFileHandler(
+                logFileName, maxBytes=10485760, backupCount=5, encoding="utf-8")
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
+            self.logger.addHandler(file_handler)
 
-    file_handler = logging.handlers.RotatingFileHandler(
-        LOG_FILENAME, maxBytes=10485760, backupCount=5, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-
-set_logger()
+            # console handler
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+            
+        return self.logger

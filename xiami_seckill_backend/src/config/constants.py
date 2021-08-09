@@ -3,6 +3,16 @@
 DEFAULT_SUC_MESSAGE = "Operation Successful"
 SUCCESS_CODE = 200
 
+# login page
+LOGIN_PAGE_URI = '/site/login'
+
+# logging
+LOG_FILENAME_PREFIX = 'jd-order'
+
+# email 
+SMTP_HOST = 'smtp.qq.com'
+SMTP_PORT = 465
+
 # HTTP Code
 HTTP_CODE_200 = 200
 HTTP_CODE_400 = 400
@@ -44,6 +54,7 @@ SECKILL_INFO_CACHE_KEY = 'seckill_info_cache_key'
 LOCK_KEY_SECKILL_ARRANGEMENT = 'user_arrangement_lock_key'
 LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT = 'user_cencel_arrangement_lock_key'
 LOCK_KEY_CUSTOM_SKU_DATA = 'user_custom_sku_data_lock_key'
+LOCK_KEY_ADJUST_SERVER_TIME = 'adjust_server_time_lock_key'
 
 # JD constants
 JD_PC_COOKIE_NAME = "jd-pc-cookies"

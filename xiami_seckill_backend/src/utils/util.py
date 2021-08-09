@@ -22,7 +22,7 @@ from config.constants import (
     RSA_PUBLIC_KEY,
     DATETIME_STR_PATTERN
 )
-from utils.log import logger
+from utils.log import Logger
 
 import requests
 from Crypto.PublicKey import RSA
@@ -234,6 +234,7 @@ def check_login(func):
 
     @functools.wraps(func)
     def new_func(self, *args, **kwargs):
+        logger = Logger(self.login_username).set_logger()
         if not self.is_login:
             logger.info("{0} 需登陆后调用，开始扫码登陆".format(func.__name__))
             self.login_by_QRcode()
@@ -243,9 +244,10 @@ def check_login(func):
 
 def fetch_latency(func):
     """打印当前方法调用时间"""
-
+    
     @functools.wraps(func)
     def new_func(self, *args, **kwargs):
+        logger = Logger(self.login_username).set_logger()
         t_before = datetime.now()
         ret = func(self, *args, **kwargs)
         t_after = datetime.now()
@@ -325,14 +327,14 @@ def cookie_dict_to_str(cookies_dict):
 def build_item_info(item_info_array):
     built_str = ''
     for item in item_info_array:
-        built_str += '%0D%0A%0D%0A 商品数量:{}%0D%0A%0D%0A 商品名称:{}%0D%0A%0D%0A ![avatar]({})'.format(item['quantity'], item['name'].replace('%',''), item['image'])
+        built_str += '<div>商品数量:{}</div></br>商品名称:{}</br><img src="{}"/>'.format(item['quantity'], item['name'].replace('%',''), item['image'])
     return built_str
 
 def build_order_message(nick_name, order_info_item):
     built_item_str = build_item_info(order_info_item['item_info_array'])
-    text = nick_name + '订单成功, 收件人:{}'.format(order_info_item['addr_name'])
-    desp = '订单号：{} %0D%0A%0D%0A 订单价格: {} %0D%0A%0D%0A 收货地址: {} %0D%0A%0D%0A 商品明细 %0D%0A%0D%0A{}'.format(order_info_item['order_id'], order_info_item['sum_price'], order_info_item['addr'], built_item_str)
-    return text, desp
+    subject = nick_name + '订单成功, 收件人:{}'.format(order_info_item['addr_name'])
+    content = '<html><body><h1>订单号: {}</h1><div>订单价格:{}</div><div>收货地址:{}</div><div>商品明细</div></br></br>{}</body></html>'.format(order_info_item['order_id'], order_info_item['sum_price'], order_info_item['addr'], built_item_str)
+    return subject, content
 
 def is_class_type_of(instance, class_name):
     return type(instance).__name__ == class_name

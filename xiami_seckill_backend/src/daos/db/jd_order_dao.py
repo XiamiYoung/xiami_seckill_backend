@@ -1,4 +1,4 @@
-from models.jd_order_model import JDOrder
+from models.jd.jd_order_model import JDOrder
 from django.db import connection
 
 from utils.util import (

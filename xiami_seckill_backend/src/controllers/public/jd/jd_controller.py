@@ -3,19 +3,26 @@ from django.http import HttpResponse
 from data.out.base_res_body import BaseResBody
 from django.views.decorators.csrf import csrf_exempt
 from controllers.public.jd.base.jd_base_controller import JDBaseController
+from config.config import global_config
 from utils.util import (
     str_to_json
 )
+
+from utils.token_util import (
+    decrypt_token
+)
+
+db_prop_secret = global_config.get('config', 'db_prop_secret')
 
 class JDController(JDBaseController):
 
     @csrf_exempt
     def check_qr_code(self, request):
         # get JD service
-        jd_service = self._get_jd_service_with_cookie(request)
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie(request)
 
         # get QR code
-        qr_code_response, cookie_token, jd_cookies = jd_service.load_QRcode()
+        qr_code_response, cookie_token, jd_cookies = jd_seckill_service.load_QRcode()
 
         # send response
         response= HttpResponse(qr_code_response, content_type='image/png')
@@ -32,10 +39,10 @@ class JDController(JDBaseController):
         cookie_token = data['cookie-token']
 
         # get JD service
-        jd_service = self._get_jd_service_with_cookie(request)
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie(request)
 
         # cancel qr code scan
-        ret = jd_service.cancel_qr_scan(cookie_token)
+        ret = jd_seckill_service.cancel_qr_scan(cookie_token)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -56,10 +63,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service_with_cookie(request)
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie(request)
 
         # cancel qr code scan
-        ret = jd_service.cancel_mobile_code_input(login_username, nick_name)
+        ret = jd_seckill_service.cancel_mobile_code_input(login_username, nick_name)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -79,8 +86,8 @@ class JDController(JDBaseController):
         cookie_token = data['cookie-token']
 
         # get JD service
-        jd_service = self._get_jd_service_with_cookie(request)  
-        result = jd_service.check_qr_scan_result(cookie_token)
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie(request)  
+        result = jd_seckill_service.check_qr_scan_result(cookie_token)
 
         resp_body_data = {
                             'success': False
@@ -111,10 +118,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service_with_cookie(request) 
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie(request) 
 
         # call login service
-        self.execute_in_thread(jd_service.load_login_cookie, (login_username, cookie_token))
+        self.execute_in_thread(jd_seckill_service.load_login_cookie, (login_username, cookie_token))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -131,7 +138,7 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # call service
-        resp_json =  self._get_user_service().find_user_by_username(login_username, is_return_model=True)
+        resp_json =  self._get_login_user_service().find_user_by_username(login_username, is_return_model=True)
 
         # remove unwanted attrs
         jd_user_list = list(resp_json.jduser_set.all().values())
@@ -140,6 +147,11 @@ class JDController(JDBaseController):
             item['mobile_cookie_str'] = ''
             item['created_ts'] = ''
             item['updated_ts'] = ''
+            if 'jd_pwd' in item and item['jd_pwd']:
+                item['jd_pwd'] = '******'
+
+            if 'push_token' in item and item['push_token']:
+                item['push_token'] = decrypt_token(item['push_token'], db_prop_secret)['push_token']
             
         # send response
         resp_body_data = {
@@ -159,8 +171,8 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # call service
-        self._get_jd_service().delete_arrangement_item(login_username, nick_name)
-        self._get_user_service().delete_jd_user_by_nick_name(login_username, nick_name)
+        self._get_jd_seckill_service(login_username).delete_arrangement_item(login_username, nick_name)
+        self._get_jd_user_service().delete_jd_user_by_nick_name(login_username, nick_name)
 
         # send response
         resp_body_data = {
@@ -181,10 +193,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service() 
+        jd_seckill_service = self._get_jd_seckill_service(login_username) 
 
         # call login service
-        jd_service.put_user_input_mobile_code(login_username, nick_name, mobile_code)
+        jd_seckill_service.put_user_input_mobile_code(login_username, nick_name, mobile_code)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -205,10 +217,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service() 
+        jd_seckill_service = self._get_jd_seckill_service(login_username) 
 
         # call login service
-        self.execute_in_thread(jd_service.mobile_login, (login_username, nick_name, mobile))
+        self.execute_in_thread(jd_seckill_service.mobile_login, (login_username, nick_name, mobile))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -228,8 +240,8 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()  
-        result = jd_service.check_mobile_code_result(login_username, nick_name)
+        jd_seckill_service = self._get_jd_seckill_service(login_username)  
+        result = jd_seckill_service.check_mobile_code_result(login_username, nick_name)
 
         resp_body_data = {
                             'success': False
@@ -269,11 +281,13 @@ class JDController(JDBaseController):
     def batch_load_seckill(self, request):
         data = str_to_json(request.body)
         is_force_refresh = data['is_force_refresh']
+        login_username = self._get_login_username(request)
+
         # get JD service
-        jd_service = self._get_jd_service() 
+        jd_seckill_service = self._get_jd_seckill_service(login_username) 
 
         # call service
-        resp_json =  jd_service.batch_load_seckill(is_force_refresh)
+        resp_json =  jd_seckill_service.batch_load_seckill(is_force_refresh)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -288,14 +302,16 @@ class JDController(JDBaseController):
         data = str_to_json(request.body)
         sku_id = data['sku_id']
 
+        login_username = self._get_login_username(request)
+
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         resp_body = BaseResBody().to_json_body()
 
         # call service
         try:
-            ret = jd_service.get_item_detail_info(sku_id, is_wait_for_limit=True)
+            ret = jd_seckill_service.get_item_detail_info(sku_id, is_wait_for_limit=True)
             resp_body_data = {
                                 'success': True,
                                 'sku_data': ret
@@ -321,7 +337,7 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service_with_cookie_after_login(request, nick_name) 
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie_after_login(request, nick_name) 
 
         execution_arrangement_array = []
         for item in arrangement_list:
@@ -335,7 +351,7 @@ class JDController(JDBaseController):
                 execution_arrangement_array.append(execution_item)
 
         # call service
-        self.execute_in_thread(jd_service.execute_arrangement, (execution_arrangement_array,login_username, nick_name, leading_time))
+        self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, nick_name, leading_time))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -355,7 +371,7 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         execution_arrangement_array = []
         for item in arrangement_list:
@@ -369,7 +385,7 @@ class JDController(JDBaseController):
                 execution_arrangement_array.append(execution_item)
 
         # call service
-        self.execute_in_thread(jd_service.cancel_arrangement, (execution_arrangement_array,login_username, nick_name))
+        self.execute_in_thread(jd_seckill_service.cancel_arrangement, (execution_arrangement_array,login_username, nick_name))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -390,10 +406,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        self.execute_in_thread(jd_service.add_or_remove_arrangement, (target_time, login_username, nick_name, is_add))
+        self.execute_in_thread(jd_seckill_service.add_or_remove_arrangement, (target_time, login_username, nick_name, is_add))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -410,10 +426,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        ret = jd_service.get_arrangement_status(login_username)
+        ret = jd_seckill_service.get_arrangement_status(login_username)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -430,10 +446,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        jd_service.delete_arrangement_item(login_username, nick_name, target_time)
+        jd_seckill_service.delete_arrangement_item(login_username, nick_name, target_time)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -452,10 +468,29 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        self.execute_in_thread(jd_service.add_custom_sku_info_to_cache, (login_username, sku_data))
+        self.execute_in_thread(jd_seckill_service.add_custom_sku_info_to_cache, (login_username, sku_data))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def delete_custom_sku_info_from_cache(self, request):
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
+
+        # call service
+        self.execute_in_thread(jd_seckill_service.delete_custom_sku_info_from_cache, (login_username,))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -472,10 +507,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service()
+        jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        sku_data = jd_service.get_custom_sku_info_from_cache(login_username)
+        sku_data = jd_seckill_service.get_custom_sku_info_from_cache(login_username)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -501,10 +536,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_service = self._get_jd_service() 
+        jd_seckill_service = self._get_jd_seckill_service(login_username) 
 
         # call service
-        ret = jd_service.read_execution_log(login_username, nick_name, last_id)
+        ret = jd_seckill_service.read_execution_log(login_username, nick_name, last_id)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -517,8 +552,7 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        user_service = self._get_user_service()  
-        jd_order_list = user_service.find_jd_orders_by_username(login_username)
+        jd_order_list = self._get_jd_order_service().find_jd_orders_by_username(login_username)
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -538,12 +572,12 @@ class JDController(JDBaseController):
         nick_name = data['nick_name']
 
         # get JD service
-        jd_service = self._get_jd_service_with_cookie_after_login(request, nick_name) 
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie_after_login(request, nick_name) 
 
         resp_body = BaseResBody().to_json_body()
 
         # check cookie valid
-        if not jd_service.get_user_info():
+        if not jd_seckill_service.get_user_info():
             resp_body_data = {
                             'success': False,
                             'msg': '用户cookie失效'
@@ -553,7 +587,7 @@ class JDController(JDBaseController):
             return response
 
         # get JD service
-        result, msg = jd_service.cancel_order(order_id)
+        result, msg = jd_seckill_service.cancel_order(order_id)
 
         # send response
         
@@ -574,10 +608,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD User service
-        user_service = self._get_user_service()  
+        jd_user_service = self._get_jd_user_service()  
 
         # call service
-        self.execute_in_thread(user_service.save_or_update_jd_user_arrangement, (login_username, user_arrangement))
+        self.execute_in_thread(jd_user_service.save_or_update_jd_user_arrangement, (login_username, user_arrangement))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -589,18 +623,79 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
-    def save_jd_user_options(self, request):
+    def save_jd_user_leading_time(self, request):
         # get data
         data = str_to_json(request.body)
-        user_options = data['user_options']
         nick_name = data['nick_name']
+        user_options = data['user_options']
 
         # get JD User service
-        user_service = self._get_user_service()  
+        jd_user_service = self._get_jd_user_service()  
 
-        # call service
-        if 'leading_time' in user_options:
-            self.execute_in_thread(user_service.update_leading_time, (nick_name, user_options['leading_time']))
+        self.execute_in_thread(jd_user_service.update_jd_user_leading_time, (nick_name, user_options))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def save_jd_user_pwd(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        user_options = data['user_options']
+
+        # get JD User service
+        jd_user_service = self._get_jd_user_service()  
+
+        self.execute_in_thread(jd_user_service.update_jd_user_pwd, (nick_name, user_options))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def save_jd_user_push_token(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        user_options = data['user_options']
+
+        # get JD User service
+        jd_user_service = self._get_jd_user_service()  
+
+        self.execute_in_thread(jd_user_service.update_jd_user_push_token, (nick_name, user_options))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
+    def save_jd_user_push_email(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        user_options = data['user_options']
+
+        # get JD User service
+        jd_user_service = self._get_jd_user_service()  
+
+        self.execute_in_thread(jd_user_service.update_jd_user_push_email, (nick_name, user_options))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -616,8 +711,8 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        user_service = self._get_user_service()  
-        jd_user_arrangement = user_service.find_jd_user_arrangement_by_username(login_username)
+        jd_user_service = self._get_jd_user_service()  
+        jd_user_arrangement = jd_user_service.find_jd_user_arrangement_by_username(login_username)
 
         # send response
         resp_body = BaseResBody().to_json_body()

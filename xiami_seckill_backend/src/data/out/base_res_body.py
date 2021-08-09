@@ -5,7 +5,7 @@ from config.constants import (
 )
 
 class BaseResBody(object):
-    def __init__(self, msg=DEFAULT_SUC_MESSAGE, reason_code=SUCCESS_CODE):
+    def __init__(self, reason_code=SUCCESS_CODE, msg=DEFAULT_SUC_MESSAGE):
         self.msg = msg
         self.reason_code = reason_code
         self.body = {}

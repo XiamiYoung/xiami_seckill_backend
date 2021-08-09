@@ -1,7 +1,6 @@
 # -*- coding:utf-8 -*-
 import time
 from datetime import datetime
-from utils.log import logger
 from config.constants import (
     DATETIME_STR_PATTERN
 )
@@ -30,8 +29,10 @@ class Timer(object):
         now_time = datetime.now
         while True:
             if now_time() >= self.target_time:
-                self.service_ins.log_stream_info('时间到达，开始执行……')
                 return True
             else:
-                if not sleep_with_check(self.sleep_interval, self.cache_key):
-                    return False
+                if self.sleep_interval == 0.0001:
+                    time.sleep(self.sleep_interval)
+                else:
+                    if not sleep_with_check(self.sleep_interval, self.cache_key):
+                        return False

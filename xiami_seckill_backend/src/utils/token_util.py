@@ -13,6 +13,12 @@ secret = global_config.get('config', 'token_secret')
 jwt_idle_expiration = int(global_config.get('config', 'jwt_idle_expiration'))
 jwt_hard_expiration = int(global_config.get('config', 'jwt_hard_expiration'))
 
+def encrypt_json(json_obj, secret):
+    return jwt.encode(json_obj, secret, algorithm="HS256")
+
+def decrypt_token(token, secret):
+    return jwt.decode(token, secret, algorithms=["HS256"])
+
 def generate_token(username):
     now_dt = get_now_datetime()
     now_dt_ts = get_timestamp_in_milli_sec(now_dt)
@@ -41,8 +47,8 @@ def is_token_expired(token):
     claims = get_claims_from_token(token)
     idle_exp = claims['idle_exp']
     hard_exp = claims['hard_exp']
-    now_dt = get_now_datetime()
-    is_expired = now_dt > idle_exp or idle_exp > hard_exp
+    now_ts = get_timestamp_in_milli_sec(get_now_datetime())
+    is_expired = now_ts > idle_exp or idle_exp > hard_exp
     return is_expired
 
 
