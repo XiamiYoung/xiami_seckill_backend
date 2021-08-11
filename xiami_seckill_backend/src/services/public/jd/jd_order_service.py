@@ -33,8 +33,13 @@ class JDOrderService(object):
                 'sum_price': order_item['sum_price'],
                 'addr_name': order_item['addr_name'],
                 'addr': order_item['addr'],
+                'is_reserve': order_item['is_reserve'],
+                'is_seckill': order_item['is_seckill'],
+                'leading_time': order_item['leading_time'],
+                'stock_count': order_item['stock_count'],
+                'current_price': order_item['current_price'],
+                'original_price': order_item['original_price'],
+                'saved_price': order_item['saved_price'],
                 'item_info_array': str_to_json(order_item['item_info_array']),
             })
         return jd_order_data_list
-
-    

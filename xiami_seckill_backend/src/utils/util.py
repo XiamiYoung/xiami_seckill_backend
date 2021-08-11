@@ -184,12 +184,6 @@ def str_to_datetime(t_str, format_pattern=DATETIME_STR_PATTERN):
 def datetime_to_str(t_datetime, format_pattern=DATETIME_STR_PATTERN):
     return t_datetime.strftime(format_pattern)
 
-def get_timestamp(t_datetime=None):
-    if t_datetime:
-        return int((t_datetime - datetime(1970, 1, 1)).total_seconds() * 1000)
-    else:
-        return int((datetime.now() - datetime(1970, 1, 1)).total_seconds() * 1000)
-
 def parse_area_id(area):
     """解析地区id字符串：将分隔符替换为下划线 _
     :param area: 地区id字符串（使用 _ 或 - 进行分割），如 12_904_3375 或 12-904-3375
@@ -247,13 +241,13 @@ def fetch_latency(func):
     
     @functools.wraps(func)
     def new_func(self, *args, **kwargs):
-        logger = Logger(self.login_username).set_logger()
+        # logger = Logger(self.login_username).set_logger()
         t_before = datetime.now()
         ret = func(self, *args, **kwargs)
         t_after = datetime.now()
         t_network = get_timestamp_in_milli_sec(t_after) - get_timestamp_in_milli_sec(t_before)
         self.last_func_cost = t_network
-        logger.info('%s用时%sms', func.__name__, self.last_func_cost)
+        self.log_stream_info('%s用时%sms', func.__name__, self.last_func_cost)
         return ret
 
     return new_func
@@ -268,8 +262,8 @@ def get_random_useragent():
 
     return user_agent
 
-def to_millieseconds(date):
-    return time.mktime(date.timetuple()) + date.timestamp() / 1e7
+def to_millieseconds(dt_obj):
+    return time.mktime(dt_obj.timetuple()) + dt_obj.timestamp() / 1e7
 
 def datetime_offset_in_milliesec(dt, offset_in_milliesec):
     return dt + timedelta(milliseconds=offset_in_milliesec)
@@ -333,7 +327,7 @@ def build_item_info(item_info_array):
 def build_order_message(nick_name, order_info_item):
     built_item_str = build_item_info(order_info_item['item_info_array'])
     subject = nick_name + '订单成功, 收件人:{}'.format(order_info_item['addr_name'])
-    content = '<html><body><h1>订单号: {}</h1><div>订单价格:{}</div><div>收货地址:{}</div><div>商品明细</div></br></br>{}</body></html>'.format(order_info_item['order_id'], order_info_item['sum_price'], order_info_item['addr'], built_item_str)
+    content = '<html><body><h1>订单号: {}</h1><div>订单价格:{}</div><div>收货地址:{}</div><div>商品明细</div></br>{}</body></html>'.format(order_info_item['order_id'], order_info_item['sum_price'], order_info_item['addr'], built_item_str)
     return subject, content
 
 def is_class_type_of(instance, class_name):

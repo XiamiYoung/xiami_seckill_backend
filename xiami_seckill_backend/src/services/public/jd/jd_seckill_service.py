@@ -13,9 +13,7 @@ from bs4 import BeautifulSoup
 import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-if os.name == 'nt':
-    from utils.time_adjuster import adjust_server_time
-
+from utils.time_adjuster import adjust_server_time
 from config.config import global_config
 from config.error_dict import error_dict
 from exception.restful_exception import RestfulException
@@ -48,7 +46,6 @@ from config.constants import (
     LOCK_KEY_ADJUST_SERVER_TIME
 )
 from utils.util import (
-    check_login,
     fetch_latency,
     encrypt_pwd,
     encrypt_payment_pwd,
@@ -81,7 +78,7 @@ from utils.util import (
     build_order_message,
     sleep_with_check,
     build_stream_message,
-    get_timestamp
+    get_timestamp_in_milli_sec
 )
 
 from utils.token_util import (
@@ -143,6 +140,7 @@ class JDSeckillService(object):
         self.target_product = {}	
         self.target_sku_id = ''	
         self.target_sku_num = 1
+        self.failure_msg = ''
 
         self.addr_obj = []
         self.default_addr = []
@@ -255,9 +253,9 @@ class JDSeckillService(object):
         jd_user_data['full_addr'] = self.get_full_addr_by_default_addr(default_addr)
         jd_user_data['pc_cookie_status'] = True
         jd_user_data['pc_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
-        jd_user_data['pc_cookie_ts'] =  get_timestamp()
+        jd_user_data['pc_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
         jd_user_data['pc_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
-        jd_user_data['pc_cookie_expire_ts'] =  get_timestamp(datetime_offset_in_milliesec(get_now_datetime(), 24 * 60 * 60 * 1000)) # 24 hours
+        jd_user_data['pc_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 24 * 60 * 60 * 1000)) # 24 hours
         jd_user_data['pc_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
 
         jd_user_data = self.jd_user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
@@ -603,7 +601,6 @@ class JDSeckillService(object):
         reserve_url = resp_json.get('url')
         return 'https:' + reserve_url if reserve_url else None
 
-    @check_login
     def make_reserve(self, sku_id):
         """商品预约
         :param sku_id: 商品id
@@ -764,9 +761,9 @@ class JDSeckillService(object):
                 # update pc login status
                 jd_user_data['mobile_cookie_status'] = True
                 jd_user_data['mobile_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
-                jd_user_data['mobile_cookie_ts'] =  get_timestamp()
+                jd_user_data['mobile_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
                 jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
-                jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
+                jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
                 jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
                 jd_user_data['mobile'] = mobile_num
 
@@ -1131,7 +1128,6 @@ class JDSeckillService(object):
             self.log_stream_error(e)
             return False
 
-    @check_login
     def get_cart_detail(self):
         """获取购物车商品详情
         :return: 购物车商品信息 dict
@@ -1519,7 +1515,6 @@ class JDSeckillService(object):
                 return item
         return addr_json[0]
 
-    @check_login
     @fetch_latency
     def cancel_order(self, order_id):
 
@@ -1580,7 +1575,6 @@ class JDSeckillService(object):
             self.log_stream_info('未发现订单%s或已取消', order_id)
             return False, "未发现订单或已取消"
 
-    @check_login
     def get_order_info(self, silent=False):
         """查询订单信息
         :param unpaid: 只显示未付款订单，可选参数，默认为True
@@ -1776,6 +1770,8 @@ class JDSeckillService(object):
                 if is_multi_thread:
                     self.log_stream_info('线程[%s]订单提交失败, 错误码：%s, 返回信息：%s', thread_index, result_code, message)
                 else:
+                    if not self.failure_msg:
+                        self.failure_msg = message
                     self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
                 return False
         except Exception as e:
@@ -1945,7 +1941,10 @@ class JDSeckillService(object):
                 return seckill_url
             else:
                 self.log_stream_info("抢购链接获取失败，%s不是抢购商品或抢购页面暂未刷新，%s秒后重试", sku_id, retry_interval)
-                time.sleep(retry_interval)
+                # 设置取消检查点
+                if not sleep_with_check(retry_interval, self.execution_cache_key):
+                    self.execution_keep_running = False
+                    return False
 
     def request_seckill_url(self, sku_id):
         """访问商品的抢购链接（用于设置cookie等）
@@ -1954,6 +1953,8 @@ class JDSeckillService(object):
         """
         if not self.seckill_url.get(sku_id):
             self.seckill_url[sku_id] = self._get_seckill_url(sku_id)
+            if not self.execution_keep_running:
+                return False
         headers = {
             'User-Agent': self.user_agent,
             'Host': 'marathon.jd.com',
@@ -2119,7 +2120,9 @@ class JDSeckillService(object):
         for count in range(1, submit_retry_count + 1):
             self.log_stream_info('第[%s/%s]次尝试抢购商品:%s', count, submit_retry_count, sku_id)
 
-            self.request_seckill_url(sku_id)
+            ret = self.request_seckill_url(sku_id)
+            if not ret and not self.execution_keep_running:
+                return False
 
             order_id = self.submit_seckill_order(sku_id, num)
             if order_id:
@@ -2317,9 +2320,9 @@ class JDSeckillService(object):
             self.log_stream_info('秒杀价格               %s', item_info['seckill_info']['promo_price'])
             self.log_stream_info('秒杀折扣               %s', item_info['seckill_info']['seckill_discount'])
             if stock_count:
-                self.log_stream_info('特殊标签               %s', self.get_seckill_item_stock(item_info['sku_id']))
+                self.log_stream_info('特殊标签               %s', stock_count)
             else:
-                self.log_stream_info('特殊标签               %s', '不限量')
+                self.log_stream_info('特殊标签               %s', '')
             self.log_stream_info('秒杀开始时间           %s', item_info['seckill_info']['seckill_start_time_str'])
             self.log_stream_info('秒杀结束时间           %s', item_info['seckill_info']['seckill_end_time_str'])
             self.log_stream_info('==================================秒杀信息===============================')
@@ -2627,7 +2630,6 @@ class JDSeckillService(object):
         }
         resp = self.sess.post(url, data=data, headers=headers)
 
-    @check_login
     @fetch_latency
     def obtain_copy_info_config(self):
         url = 'https://trade.jd.com/shopping/async/obtainCopyInfoConfig.action'
@@ -2644,7 +2646,6 @@ class JDSeckillService(object):
         }
         resp = self.sess.post(url, data=data, headers=headers)
 
-    @check_login
     @fetch_latency
     def get_consignee_list(self):
         url = 'https://trade.jd.com/shopping/dynamic/consignee/consigneeList.action'
@@ -2662,7 +2663,6 @@ class JDSeckillService(object):
         }
         resp = self.sess.post(url, data=data, headers=headers)
     
-    @check_login
     @fetch_latency
     def save_address(self):
         url = 'https://trade.jd.com/shopping/dynamic/consignee/saveConsignee.action'
@@ -2850,6 +2850,8 @@ class JDSeckillService(object):
                             self.log_stream_info("订单%s下单价格为非秒杀价，下单价格%s, 取消订单", submitted_order_id, submitted_price)
                             self.cancel_order(submitted_order_id)
                             order_id_list.remove(submitted_order_id)
+                            if not self.failure_msg:
+                                self.failure_msg = "下单价格为非秒杀价，取消订单"
                             # 购物车准备
                             self.pre_order_cart_action()
                         elif is_send_message and self.emailer:
@@ -2866,6 +2868,19 @@ class JDSeckillService(object):
             unpaid_order_id = str(unpaid_order_item['order_id'])
             if str(order_id) == unpaid_order_id:
                 unpaid_order_item['nick_name'] = self.nick_name
+                if self.target_product['is_reserve_product']:
+                    unpaid_order_item['is_reserve'] = '预约'
+                if self.target_product['is_seckill_product']:
+                    unpaid_order_item['is_seckill'] = '秒杀'
+                unpaid_order_item['leading_time'] = self.order_leading_in_millis
+                stock_count = self.get_seckill_item_stock(self.target_sku_id)
+                if not stock_count:
+                    stock_count = ''
+                unpaid_order_item['stock_count'] = str(stock_count)
+                unpaid_order_item['current_price'] = self.target_product['current_price']
+                unpaid_order_item['original_price'] = self.target_product['original_price']
+                unpaid_order_item['saved_price'] = float(round(float(unpaid_order_item['original_price']) - float(unpaid_order_item['current_price']), 2))
+
                 self.jd_order_service.save_jd_order(self.login_username, unpaid_order_item)
 
     @fetch_latency
@@ -2885,7 +2900,6 @@ class JDSeckillService(object):
         
         self.clear_cart()
 
-    @check_login
     def actions_before_target_time(self, target_time):
 
         # 设置取消检查点
@@ -2913,16 +2927,15 @@ class JDSeckillService(object):
         if not self.execution_keep_running:
             return False
 
-        adjusted_server_time_in_cache = ''
         adjusted_target_time = ''
-        # 如果是windows系统,开始前leading_in_sec更新系统时间
-        if os.name == 'nt':
-            leading_in_sec = 20
-            sleep_interval = 0.1
-            title = '抢购前[{0}]秒更新系统时间'.format(leading_in_sec)
-            adjusted_server_time_in_cache = self.call_function_with_leading_time(title, sleep_interval, self.update_sys_time, target_time, leading_in_sec)
-            if adjusted_server_time_in_cache:
-                adjusted_target_time = adjusted_server_time_in_cache
+        
+        # 开始前leading_in_sec更新系统时间
+        leading_in_sec = 20
+        sleep_interval = 0.1
+        title = '抢购前[{0}]秒更新系统时间'.format(leading_in_sec)
+        adjusted_server_time_in_cache = self.call_function_with_leading_time(title, sleep_interval, self.update_sys_time, target_time, leading_in_sec)
+        if adjusted_server_time_in_cache:
+            adjusted_target_time = adjusted_server_time_in_cache
 
         # 设置取消检查点
         if not self.execution_keep_running:
@@ -2963,7 +2976,6 @@ class JDSeckillService(object):
         self.log_stream_info('调整后的抢购时间                     %s', adjusted_target_time)
         return adjusted_target_time
 
-    @check_login
     def actions_after_order_submit(self, order_id_list, target_time, t_order_start):
         
         # 下单效率debug信息
@@ -2979,7 +2991,6 @@ class JDSeckillService(object):
             self.log_stream_error('sku或数量为空, 传入参数: %s， %s',sku_id, num)
             raise AssertionError('sku或数量为空')
 
-    @check_login
     @fetch_latency
     def prepare_on_init(self, target_time, sku_id, num):
         try:
@@ -2987,6 +2998,9 @@ class JDSeckillService(object):
             
             # 基本信息
             self.log_stream_info('运行在debug模式:%s', self.bool_map[str(self.is_debug_mode)])
+
+            # 重置错误信息
+            self.failure_msg = ""
 
             # 检查传入参数
             self.validate_params(sku_id, num)
@@ -3065,7 +3079,6 @@ class JDSeckillService(object):
 
         return True
 
-    @check_login
     def exec_reserve_seckill_by_time(self, target_time):
         """定时抢购`预约抢购商品`
 
@@ -3133,6 +3146,8 @@ class JDSeckillService(object):
                     submit_retry_count = 10
                     submit_interval = 0.1
                     order_id = self.exec_marathon_seckill(self.target_sku_id, self.target_sku_num, submit_retry_count, submit_interval)
+                    if not order_id and not self.execution_keep_running:
+                        return []
                     if order_id:
                         order_id_list.append(order_id)
 
@@ -3160,7 +3175,6 @@ class JDSeckillService(object):
 
         return order_id_list
 
-    @check_login
     @fetch_latency
     def post_failure_try(self):
         """秒杀失败后，继续使用有货下单模式抢购try_in_mins分钟
@@ -3197,7 +3211,6 @@ class JDSeckillService(object):
         return order_id_list
 
 
-    @check_login
     def buy_item_in_stock(self, stock_interval=1, submit_retry=1, submit_interval=5, is_post_submit_order_failure=False, try_in_mins=5):
         """根据库存自动下单商品
         :param stock_interval: 查询库存时间间隔，可选参数，默认3秒
@@ -3337,6 +3350,10 @@ class JDSeckillService(object):
                             should_countinue = False
                             order_id_list.append(order_id)
                             continue
+                        else:
+                            if not sleep_with_check(stock_interval, self.execution_cache_key):
+                                self.execution_keep_running = False
+                                return []
                     else:
                         # 检查是否仍为抢购价格
                         # 获取当前商品信息
@@ -3363,6 +3380,10 @@ class JDSeckillService(object):
                                         else:
                                             order_id_list.append(order_id)
                                             break
+                            else:
+                                if not sleep_with_check(stock_interval, self.execution_cache_key):
+                                    self.execution_keep_running = False
+                                    return []
                         else:
                             # 预约商品，有货直接下单
                             is_multi_thread = False
@@ -3371,6 +3392,10 @@ class JDSeckillService(object):
                                 should_countinue = False
                                 order_id_list.append(order_id)
                                 continue
+                            else:
+                                if not sleep_with_check(stock_interval, self.execution_cache_key):
+                                    self.execution_keep_running = False
+                                    return []
             else:
                 # marathon模式
                 submit_retry_count = 1
@@ -3406,15 +3431,15 @@ class JDSeckillService(object):
 
     def get_seckill_item_stock(self, sku_id):
         try:
-            parsed_arrange_list = self.batch_load_seckill()
+            parsed_arrange_list = self.batch_load_seckill(is_force_refresh=True, is_ignore_limit=True)
             for gid_item in parsed_arrange_list:
                 seckill_list = gid_item['seckill_items']
                 for seckill_item in seckill_list:
-                    if seckill_item['wareId'] == str(sku_id):
-                            if 'specificationLabel' in seckill_item:
-                                return seckill_item['specificationLabel']
-                            else:
-                                return '不限量'
+                    if str(seckill_item['wareId']) == str(sku_id):
+                        if 'specificationLabel' in seckill_item:
+                            return seckill_item['specificationLabel']
+                        else:
+                            return ''
             return False
         except Exception as e:
             self.log_stream_error('查询 %s 秒杀数量发生异常, exception: %s', sku_id, e)
@@ -3442,7 +3467,7 @@ class JDSeckillService(object):
                 self.log_stream_error('获取缓存秒杀信息失败, exception: %s', e)
                 return False
 
-    def batch_load_seckill(self, is_force_refresh=False):
+    def batch_load_seckill(self, is_force_refresh=False, is_ignore_limit=False):
         parsed_arrange_list = []
         try:
             should_read_from_cache_flag = True
@@ -3461,8 +3486,11 @@ class JDSeckillService(object):
                 now_dt_ts = get_timestamp_in_milli_sec(now_dt)
 
                 for item in arrange_list:
-                    if now_dt_ts < item['startTimeMills']:
+                    if is_ignore_limit:
                         parsed_arrange_list.append(item)
+                    else:
+                        if now_dt_ts < item['startTimeMills']:
+                            parsed_arrange_list.append(item)
 
                 for item in parsed_arrange_list:
                     gid = item['gid']
@@ -3486,26 +3514,32 @@ class JDSeckillService(object):
                             seckill_item['tagText'] = '超级秒杀'
 
                     for index, seckill_item in enumerate(resp_json_each_gid['miaoShaList']):
-                        if index < self.seckill_skus_limit:
-                            # if 'tagText' in seckill_item and seckill_item['tagText'] == '超级秒杀':
+                        if not is_ignore_limit:
+                            if index < self.seckill_skus_limit:
+                                # if 'tagText' in seckill_item and seckill_item['tagText'] == '超级秒杀':
+                                seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
+                                seckill_item['rate'] = seckill_item['rate'].replace('折','')
+                                if 'wareId' in seckill_item:
+                                    item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True)
+                                    seckill_item['isReserveProduct'] = item_info['is_reserve_product']
+                                    seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
+                                    # seckill_item['list_price'] =  item_info['list_price']
+                                else:
+                                    self.log_stream_info(seckill_item)
+                                parsed_resp_json_each_gid.append(seckill_item)
+                        else:
                             seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
                             seckill_item['rate'] = seckill_item['rate'].replace('折','')
-                            if 'wareId' in seckill_item:
-                                item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True)
-                                seckill_item['isReserveProduct'] = item_info['is_reserve_product']
-                                seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
-                                # seckill_item['list_price'] =  item_info['list_price']
-                            else:
-                                self.log_stream_info(seckill_item)
                             parsed_resp_json_each_gid.append(seckill_item)
                     item['seckill_items'] = parsed_resp_json_each_gid
 
-                # put to cache
-                seckill_jd_cache_value = {
-                    'parsed_arrange_list': parsed_arrange_list,
-                    'last_update_ts': datetime_to_str(get_now_datetime())
-                }
-                self.cache_dao.put(SECKILL_INFO_CACHE_KEY, seckill_jd_cache_value, DEFAULT_CACHE_SECKILL_INFO_TTL)
+                if not is_ignore_limit:
+                    # put to cache
+                    seckill_jd_cache_value = {
+                        'parsed_arrange_list': parsed_arrange_list,
+                        'last_update_ts': datetime_to_str(get_now_datetime())
+                    }
+                    self.cache_dao.put(SECKILL_INFO_CACHE_KEY, seckill_jd_cache_value, DEFAULT_CACHE_SECKILL_INFO_TTL)
         except Exception as e:
             self.log_stream_error('获取秒杀信息失败')
             raise RestfulException(error_dict['SERVICE']['JD']['GET_BATCH_SECKILL_FAILURE'])
@@ -3538,10 +3572,22 @@ class JDSeckillService(object):
             raise RestfulException(error_dict['COMMON']['SECKILL_BATCH_LOAD_FAILURE'])
         return resp_json
 
-    @check_login
     def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time):
         self.login_username = login_username
         self.nick_name = nick_name
+
+        # steam message
+        self.logger_stream = login_username + '_' + nick_name
+        self.logger_group = login_username + '_' + nick_name
+        self.logger_consumer = nick_name
+        self.stream_enabled = True
+
+        # 检查是否已有计划运行中
+        if(self.is_jd_user_has_running_task(login_username, nick_name)):
+            self.log_stream_info('=========================================================================')
+            self.log_stream_info('用户%s已有运行计划，忽略此次运行', self.nick_name)
+            self.log_stream_info('=========================================================================')
+            return
 
         # 添加运行flag
         self.execution_cache_key = login_username + '_' + nick_name + '_arrangement_running'
@@ -3549,12 +3595,6 @@ class JDSeckillService(object):
             'cancelled': False
         }
         self.cache_dao.put(self.execution_cache_key, execution_cache_val)
-
-        # steam message
-        self.logger_stream = login_username + '_' + nick_name
-        self.logger_group = login_username + '_' + nick_name
-        self.logger_consumer = nick_name
-        self.stream_enabled = True
 
         # delete stream
         self.cache_dao.delete_stream(self.logger_stream)
@@ -3567,6 +3607,7 @@ class JDSeckillService(object):
         # 初始化状态
         for arrangement_item in execution_arrangement_array:
             target_time = arrangement_item.get('target_time').strip()
+            
             # 更新分步状态
             self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_PLANNED)
 
@@ -3647,6 +3688,17 @@ class JDSeckillService(object):
         for arrangement_status_item in arrangement_status_cache_value:
             if nick_name == arrangement_status_item['nick_name']:
                 return True
+        return False
+
+    def is_jd_user_has_running_task(self, login_username, nick_name):
+        self.execution_status_cache_key = 'seckill_arrangement_' + login_username
+        arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
+        if arrangement_status_cache_value:
+            for arrangement_status_item in arrangement_status_cache_value:
+                if arrangement_status_item['nick_name'] == nick_name:
+                    for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
+                        if arrangement_status_item_each_target_time['status'] == ARRANGEMENT_EXEC_STATUS_RUNNING:
+                            return True
         return False
 
     def add_or_remove_arrangement(self, target_time, login_username, nick_name, is_add):
@@ -3733,7 +3785,8 @@ class JDSeckillService(object):
                 for arrangement_item in execution_arrangement_array:
                     arrangement_cache_status_arangement_item = {
                         'target_time': arrangement_item.get('target_time'),
-                        'status': ARRANGEMENT_EXEC_STATUS_PLANNED
+                        'status': ARRANGEMENT_EXEC_STATUS_PLANNED,
+                        'failure_msg': ''
                     }
                     arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
                 arrangement_status_cache_value.append(arrangement_cache_status_item)
@@ -3746,7 +3799,8 @@ class JDSeckillService(object):
                     for arrangement_item in execution_arrangement_array:
                         arrangement_cache_status_arangement_item = {
                             'target_time': arrangement_item.get('target_time'),
-                            'status': ARRANGEMENT_EXEC_STATUS_PLANNED
+                            'status': ARRANGEMENT_EXEC_STATUS_PLANNED,
+                            'failure_msg': ''
                         }
                         arrangement_cache_status_item['seckill_arangement'].append(arrangement_cache_status_arangement_item)
                     arrangement_status_cache_value.append(arrangement_cache_status_item)
@@ -3757,11 +3811,13 @@ class JDSeckillService(object):
                                 for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
                                     if arrangement_status_item_each_target_time['target_time'] == target_time:
                                         if arrangement_status_item_each_target_time['status'] == ARRANGEMENT_EXEC_STATUS_RUNNING:
-                                            arrangement_status_item_each_target_time['status'] = status
+                                            arrangement_status_item_each_target_time['status'] = status,
+                                            arrangement_status_item_each_target_time['failure_msg'] = ''
                             else:
                                 for arrangement_status_item_each_target_time in arrangement_status_item['seckill_arangement']:
                                     if arrangement_status_item_each_target_time['target_time'] == target_time:
                                         arrangement_status_item_each_target_time['status'] = status
+                                        arrangement_status_item_each_target_time['failure_msg'] = self.failure_msg
 
             self.cache_dao.put(self.execution_status_cache_key, arrangement_status_cache_value, DEFAULT_CACHE_STATUS_TTL)
         finally:

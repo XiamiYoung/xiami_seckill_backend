@@ -4,3 +4,58 @@ py manage.py makemigrations xiami_seckill_backend
 py manage.py migrate xiami_seckill_backend 
 
 py manage.py runserver 0.0.0.0:8000
+
+
+userExecutionStatus: [
+{
+	'login_username': 'admin123',
+	'arrangement':[
+		{
+			'jd_user_name':'大大大大大大虾米',
+			'seckill_arangement':[
+				{
+					'target_time':'2021-07-26 18:00:00.000',
+					'status':'failed',
+					'failure_msg':'啊哦，活动已经结束了'
+				},
+				{
+					'target_time':'2021-07-26 20:00:00.000',
+					'status':'running',
+					'failure_msg':''
+				}
+			]
+		},
+		{
+			'jd_user_name':'樱淇amy',
+			'seckill_arangement':[
+				{
+					'target_time':'2021-07-26 18:00:00.000',
+					'status':'planned',
+					'failure_msg':''
+				},
+				{
+					'target_time':'2021-07-26 20:00:00.000',
+					'status':'running',
+					'failure_msg':''
+				}
+			]
+		}
+	]
+},
+{
+	'login_username': 'admin234',
+	'arrangement':{
+		'jd_user_name':'大大大大大大虾米',
+		'seckill_arangement':[
+			{
+				'target_time':'2021-07-26 18:00:00.000',
+				'status':'planned'
+			},
+			{
+				'target_time':'2021-07-26 20:00:00.000',
+				'status':'running'
+			}
+		]
+	}
+}
+]

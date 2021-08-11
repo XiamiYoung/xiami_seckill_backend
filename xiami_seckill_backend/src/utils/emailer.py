@@ -4,6 +4,7 @@ from email.mime.text import MIMEText
 from email.header import Header
 from email.utils import parseaddr, formataddr
 import traceback
+import threading
 from config.constants import (
     SMTP_HOST,
     SMTP_PORT 
@@ -23,7 +24,12 @@ class Emailer:
         return formataddr(addr)
 
     def send(self, subject, content):
+        t = threading.Thread(target=self.send_in_thread, args=(subject, content))
+        t.daemon = True
+        t.start()
+        self.service_ins.log_stream_info('邮件请求已发出:%s', self.sender)
 
+    def send_in_thread(self, subject, content):
         message = MIMEText(content, 'html', 'utf-8')
 
         message['From'] = self._format_addr(self.sender)
@@ -42,3 +48,5 @@ class Emailer:
         finally:
             if smtpObj:
                 smtpObj.quit()
+
+    
