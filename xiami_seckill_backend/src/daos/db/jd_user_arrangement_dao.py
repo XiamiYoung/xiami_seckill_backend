@@ -14,11 +14,9 @@ class JDUserArrangementDao(object):
             if hasattr(user_model, 'jduserarrangement') and user_model.jduserarrangement is not None:
                 jd_user_arrangement_model = user_qs.first().jduserarrangement
                 jd_user_arrangement_model.seckill_arrangement = json_to_str(data.get('seckill_arrangement', {}))
-                jd_user_arrangement_model.sku_arrangement = json_to_str(data.get('sku_arrangement', {}))
             else:
                 jd_user_arrangement_model = JDUserArrangement(
                                         seckill_arrangement = json_to_str(data.get('seckill_arrangement', {})),
-                                        sku_arrangement = json_to_str(data.get('sku_arrangement', {})),
                                         user = user_model
                                     )
             jd_user_arrangement_model.save()

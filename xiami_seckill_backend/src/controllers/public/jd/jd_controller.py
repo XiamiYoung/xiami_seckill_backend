@@ -566,6 +566,25 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
+    def delete_jd_order(self, request):
+        data = str_to_json(request.body)
+        order_id = data['order_id']
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        self._get_jd_order_service().delete_by_order_id(login_username, order_id)
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'success': True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
     def cancel_jd_order(self, request):
         data = str_to_json(request.body)
         order_id = data['order_id']
@@ -628,11 +647,12 @@ class JDController(JDBaseController):
         data = str_to_json(request.body)
         nick_name = data['nick_name']
         user_options = data['user_options']
+        login_username = self._get_login_username(request)
 
         # get JD User service
         jd_user_service = self._get_jd_user_service()  
 
-        self.execute_in_thread(jd_user_service.update_jd_user_leading_time, (nick_name, user_options))
+        self.execute_in_thread(jd_user_service.update_jd_user_leading_time, (login_username, nick_name, user_options))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -649,11 +669,12 @@ class JDController(JDBaseController):
         data = str_to_json(request.body)
         nick_name = data['nick_name']
         user_options = data['user_options']
+        login_username = self._get_login_username(request)
 
         # get JD User service
         jd_user_service = self._get_jd_user_service()  
 
-        self.execute_in_thread(jd_user_service.update_jd_user_pwd, (nick_name, user_options))
+        self.execute_in_thread(jd_user_service.update_jd_user_pwd, (login_username, nick_name, user_options))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -670,11 +691,12 @@ class JDController(JDBaseController):
         data = str_to_json(request.body)
         nick_name = data['nick_name']
         user_options = data['user_options']
+        login_username = self._get_login_username(request)
 
         # get JD User service
         jd_user_service = self._get_jd_user_service()  
 
-        self.execute_in_thread(jd_user_service.update_jd_user_push_token, (nick_name, user_options))
+        self.execute_in_thread(jd_user_service.update_jd_user_push_token, (login_username, nick_name, user_options))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -691,11 +713,12 @@ class JDController(JDBaseController):
         data = str_to_json(request.body)
         nick_name = data['nick_name']
         user_options = data['user_options']
+        login_username = self._get_login_username(request)
 
         # get JD User service
         jd_user_service = self._get_jd_user_service()  
 
-        self.execute_in_thread(jd_user_service.update_jd_user_push_email, (nick_name, user_options))
+        self.execute_in_thread(jd_user_service.update_jd_user_push_email, (login_username, nick_name, user_options))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -721,8 +744,7 @@ class JDController(JDBaseController):
             resp_body_data = {
                                 'success': True,
                                 'user_arrangement': {
-                                    'seckill_arrangement': str_to_json(jd_user_arrangement['seckill_arrangement']),
-                                    'sku_arrangement': str_to_json(jd_user_arrangement['sku_arrangement'])
+                                    'seckill_arrangement': str_to_json(jd_user_arrangement['seckill_arrangement'])
                                 }
                             }
         else:

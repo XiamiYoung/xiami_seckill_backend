@@ -5,7 +5,6 @@ py manage.py migrate xiami_seckill_backend
 
 py manage.py runserver 0.0.0.0:8000
 
-
 userExecutionStatus: [
 {
 	'login_username': 'admin123',

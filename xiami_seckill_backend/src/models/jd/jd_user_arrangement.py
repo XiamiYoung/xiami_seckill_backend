@@ -7,4 +7,3 @@ class JDUserArrangement(BaseModel):
         db_table = 'tbl_jd_user_arrangement'
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     seckill_arrangement = models.TextField()
-    sku_arrangement = models.TextField()

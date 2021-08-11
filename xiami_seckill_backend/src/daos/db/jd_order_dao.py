@@ -30,3 +30,10 @@ class JDOrderDao(object):
             return jd_order_model
         finally:
             connection.close()
+
+    def delete_by_order_id(self, user_model, order_id):
+        try:
+            jd_order_model = JDOrder.objects.get(user=user_model, order_id = order_id)
+            jd_order_model.delete()
+        finally:
+            connection.close()

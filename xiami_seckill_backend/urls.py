@@ -43,6 +43,7 @@ urlpatterns = [
     path('site/jd/delete-arrangement-item', jd_controller.delete_arrangement_item),
     path('site/jd/read-execution-log', jd_controller.read_execution_log),
     path('site/jd/get-jd-orders', jd_controller.get_jd_orders),
+    path('site/jd/delete-jd-order', jd_controller.delete_jd_order),
     path('site/jd/cancel-jd-order', jd_controller.cancel_jd_order),
     path('site/jd/get-jd-user-arrangement', jd_controller.get_jd_user_arrangement),
     path('site/jd/save-jd-user-arrangement', jd_controller.save_jd_user_arrangement),

@@ -9,20 +9,16 @@ db_prop_secret = global_config.get('config', 'db_prop_secret')
 
 class JDUserDao(object):
     
-    def find_by_nick_name(self, nick_name):
+    def delete_by_id(self, id):
         try:
-            jd_user_data_qs = JDUser.objects.filter(nick_name=nick_name)
-            return jd_user_data_qs
+            jd_user = JDUser.objects.get(id = id)
+            jd_user.delete()
         finally:
             connection.close()
 
-    def delete_by_id(self, id):
-        jd_user = JDUser.objects.get(id = id)
-        jd_user.delete()
-
-    def update_jd_user_leading_time(self, nick_name, user_options):
+    def update_jd_user_leading_time(self, user_model, nick_name, user_options):
         try:
-            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
             jd_user_model = jd_user_qs.first()
             if 'leading_time' in user_options:
                 jd_user_model.leading_time = int(user_options['leading_time'])
@@ -30,9 +26,9 @@ class JDUserDao(object):
         finally:
             connection.close()
 
-    def update_jd_user_pwd(self, nick_name, user_options):
+    def update_jd_user_pwd(self, user_model, nick_name, user_options):
         try:
-            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
             jd_user_model = jd_user_qs.first()
             if 'jd_pwd' in user_options:
                 if user_options['jd_pwd'] != '******' and user_options['jd_pwd'] is not None:
@@ -45,9 +41,9 @@ class JDUserDao(object):
         finally:
             connection.close()
 
-    def update_jd_user_push_token(self, nick_name, user_options):
+    def update_jd_user_push_token(self, user_model, nick_name, user_options):
         try:
-            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
             jd_user_model = jd_user_qs.first()
             if 'push_token' in user_options:
                 push_token_json = {'push_token': user_options['push_token']}
@@ -59,9 +55,9 @@ class JDUserDao(object):
         finally:
             connection.close()
 
-    def update_jd_user_push_email(self, nick_name, user_options):
+    def update_jd_user_push_email(self, user_model, nick_name, user_options):
         try:
-            jd_user_qs = JDUser.objects.filter(nick_name=nick_name)
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
             jd_user_model = jd_user_qs.first()
             if 'push_email' in user_options:
                 jd_user_model.push_email = user_options['push_email']
@@ -76,7 +72,7 @@ class JDUserDao(object):
         try:
             exists = False
             jd_user_model = None
-            jd_user_qs = JDUser.objects.filter(nick_name=data['nick_name'])
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=data['nick_name'])
             user_count = jd_user_qs.count()
             if user_count != 0:
                 exists = True

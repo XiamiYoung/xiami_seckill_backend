@@ -47,7 +47,7 @@ class JDBaseController(BaseController):
         login_user_name = self._get_login_username(request)
         jd_user_service = self._get_jd_user_service()
         jd_seckill_service = self._get_jd_seckill_service(login_user_name)
-        jd_user = jd_user_service.find_jd_user_by_username_and_nick_name(login_user_name, nick_name)
+        jd_user = jd_user_service.find_jd_user_by_username_and_nick_name(login_user_name, nick_name, is_mask_jd_pwd=False)
         if jd_user['pc_cookie_str']:
             jd_seckill_service._assign_cookies_from_remote(jd_user['pc_cookie_str'])
         if jd_user['mobile_cookie_str']:

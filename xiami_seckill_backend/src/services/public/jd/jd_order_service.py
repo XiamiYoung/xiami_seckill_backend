@@ -21,6 +21,10 @@ class JDOrderService(object):
         else:
             return jd_order_model.to_dict()
 
+    def delete_by_order_id(self, user_name, order_id):
+        login_user_model = self.login_user_service.find_user_by_username(user_name, is_return_model=True)
+        self.jd_order_dao.delete_by_order_id(login_user_model, order_id)
+
     def find_jd_orders_by_username(self, user_name):
         login_user_model = self.login_user_service.find_user_by_username(user_name, is_return_model=True)
         jd_order_list = list(login_user_model.jdorder_set.all().order_by('-created_ts').values())

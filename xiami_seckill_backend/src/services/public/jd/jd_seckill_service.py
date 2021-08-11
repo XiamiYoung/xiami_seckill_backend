@@ -195,10 +195,10 @@ class JDSeckillService(object):
             self.is_login = True
 
     def set_user_props(self, jd_user):
-        if jd_user['jd_pwd']:
-            self.payment_pwd = decrypt_token(jd_user['jd_pwd'], self.db_prop_secret)['jd_pwd']
-        if jd_user['push_token'] and jd_user['push_email']:
-            self.emailer = Emailer(self, jd_user['push_email'], decrypt_token(jd_user['push_token'], self.db_prop_secret)['push_token'])
+        if 'jd_pwd' in jd_user:
+            self.payment_pwd = jd_user['jd_pwd']
+        if 'push_token'in jd_user and jd_user['push_email']:
+            self.emailer = Emailer(self, jd_user['push_email'], jd_user['push_token'])
 
     def check_qr_scan_result(self, cookie_token):
         return self.cache_dao.get(cookie_token)
@@ -242,7 +242,7 @@ class JDSeckillService(object):
         self.nick_name = self.get_user_info()
         self.log_stream_info('二维码登录成功, 用户名:%s', self.nick_name)
 
-        jd_user_data = self.jd_user_service.find_jd_user_by_nick_name(self.nick_name, is_mask_jd_pwd=True)
+        jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, self.nick_name, is_mask_jd_pwd=True)
 
         addr_obj = self.get_user_addr()
         default_addr = self.get_default_addr(addr_obj)
@@ -756,7 +756,7 @@ class JDSeckillService(object):
 
             if mobile_nick_name:
                 self.log_stream_info("移动端登录成功:%s", mobile_nick_name)
-                jd_user_data = self.jd_user_service.find_jd_user_by_nick_name(nick_name, is_mask_jd_pwd=True)
+                jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, nick_name, is_mask_jd_pwd=True)
 
                 # update pc login status
                 jd_user_data['mobile_cookie_status'] = True
