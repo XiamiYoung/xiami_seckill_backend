@@ -99,7 +99,10 @@ class JDSeckillService(object):
         self.try_post_failure_not_sold_out_interval = float(global_config.get('config', 'try_post_failure_not_sold_out_interval'))
         self.random_stock_check_threshold = int(global_config.get('config', 'random_stock_check_threshold'))
         self.single_stock_check_interval = float(global_config.get('config', 'single_stock_check_interval'))
-        self.google_chrome_driver_name = global_config.get('config', 'google_chrome_driver_name')
+        if os.name == "nt":
+            self.google_chrome_driver_name = global_config.get('config', 'google_chrome_driver_name_win')
+        else:
+            self.google_chrome_driver_name = global_config.get('config', 'google_chrome_driver_name_linux')
         self.marathon_sk = global_config.get('config', 'marathon_sk')
         self.is_debug_mode = global_config.getboolean('config', 'is_debug_mode')
         self.qr_scan_retry = int(global_config.get('config', 'qr_scan_retry'))
