@@ -16,7 +16,7 @@ class JDOrder(BaseModel):
     is_reserve = models.CharField(max_length=10, blank=True, default='')
     is_seckill = models.CharField(max_length=10, blank=True, default='')
     stock_count = models.CharField(max_length=100, blank=True, default='')
-    current_price = models.FloatField(default=0)
+    target_price = models.FloatField(default=0)
     original_price = models.FloatField(default=0)
     saved_price = models.FloatField(default=0)
     item_info_array = models.TextField()

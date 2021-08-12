@@ -10,3 +10,5 @@ attrs==19.3.0
 django-redis
 python-redis-lock==3.7.0
 pypiwin32
+selenium
+pymysql

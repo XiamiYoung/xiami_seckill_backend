@@ -20,7 +20,7 @@ class JDOrderDao(object):
                                     is_seckill = data.get('is_seckill', ''), 
                                     leading_time = data.get('leading_time', ''), 
                                     stock_count = data.get('stock_count', ''), 
-                                    current_price = data.get('current_price', 0), 
+                                    target_price = data.get('target_price', 0), 
                                     original_price = data.get('original_price', 0), 
                                     saved_price = data.get('saved_price', 0), 
                                     user = user_model

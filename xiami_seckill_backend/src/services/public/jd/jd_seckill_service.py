@@ -692,8 +692,9 @@ class JDSeckillService(object):
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument('--headless')
             chrome_options.add_argument('--disable-gpu')
-            driver = webdriver.Chrome(executable_path=os.path.abspath(os.path.dirname(__name__)) + '\\' + self.google_chrome_driver_name, chrome_options=chrome_options)
-            
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
             url = 'https://plogin.m.jd.com/login/login?appid=300&returnurl=https%3A%2F%2Fwq.jd.com%2Fpassport%2FLoginRedirect%3Fstate%3D1101471000236%26returnurl%3Dhttps%253A%252F%252Fhome.m.jd.com%252FmyJd%252Fnewhome.action%253Fsceneval%253D2%2526ufc%253D%2526&source=wq_passport'
             driver.get(url)
 
@@ -2780,11 +2781,11 @@ class JDSeckillService(object):
             soup = BeautifulSoup(resp.text, 'html.parser')
             title = soup.find("title")
             if not title or not title.getText() == '确认订单':
-                self.logger.info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
+                self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_two()
         except Exception as e:
-            self.logger.info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
+            self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_two()
             
@@ -2817,11 +2818,11 @@ class JDSeckillService(object):
             soup = BeautifulSoup(resp.text, 'html.parser')
             title = soup.find("title")
             if not title or not title.getText() == '确认订单':
-                self.logger.info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
+                self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_one()
         except Exception as e:
-            self.logger.info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
+            self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_one()
 
@@ -2871,20 +2872,24 @@ class JDSeckillService(object):
             unpaid_order_id = str(unpaid_order_item['order_id'])
             if str(order_id) == unpaid_order_id:
                 unpaid_order_item['nick_name'] = self.nick_name
+                unpaid_order_item['target_price'] = self.target_product['current_price']
+                unpaid_order_item['original_price'] = self.target_product['original_price']
+
                 if self.target_product['is_reserve_product']:
                     unpaid_order_item['is_reserve'] = '预约'
                 if self.target_product['is_seckill_product']:
                     unpaid_order_item['is_seckill'] = '秒杀'
+                    unpaid_order_item['target_price'] = self.target_product['seckill_info']['promo_price']
+
+                unpaid_order_item['saved_price'] = float(round(float(unpaid_order_item['original_price']) - float(unpaid_order_item['target_price']), 2))
                 unpaid_order_item['leading_time'] = self.order_leading_in_millis
                 stock_count = self.get_seckill_item_stock(self.target_sku_id)
                 if not stock_count:
                     stock_count = ''
                 unpaid_order_item['stock_count'] = str(stock_count)
-                unpaid_order_item['current_price'] = self.target_product['current_price']
-                unpaid_order_item['original_price'] = self.target_product['original_price']
-                unpaid_order_item['saved_price'] = float(round(float(unpaid_order_item['original_price']) - float(unpaid_order_item['current_price']), 2))
 
                 self.jd_order_service.save_jd_order(self.login_username, unpaid_order_item)
+                self.log_stream_info('成功保存订单')
 
     @fetch_latency
     def check_is_marathon_before_start(self, target_time, leading_in_sec):

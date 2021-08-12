@@ -5,8 +5,10 @@ py manage.py migrate xiami_seckill_backend
 
 py manage.py runserver 0.0.0.0:8000
 
+47.95.14.243
+cd /root/xiami_seckill/xiami_seckill_backend/
 
-mysql
+mysql -u root -p
 
 https://www.hostinger.com/tutorials/how-to-install-mysql-on-centos-7
 
@@ -19,8 +21,9 @@ mysql_secure_installation
 
 
 redis
-
-yum install redis
+yum install -y https://repo.ius.io/ius-release-el7.rpm
+yum install -y redis5
+redis-server --version
 systemctl start redis
 systemctl enable redis
 systemctl status redis
@@ -33,10 +36,9 @@ node
 yum install nodejs
 node --version
 
-gunicorn xiami_seckill_backend.asgi:websocket_application -k uvicorn.workers.UvicornWorker --reload
-
-pip install uvicorn
-uvicorn xiami_seckill_backend.asgi:websocket_application --limit-concurrency 100 --reload
+pip3 install -U pip
+pip3 install uvicorn
+uvicorn xiami_seckill_backend.asgi:websocket_application --host="0.0.0.0" --port=8000 --limit-concurrency 100 --reload
 
 chrome
 wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm

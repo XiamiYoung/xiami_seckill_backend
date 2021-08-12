@@ -2,6 +2,7 @@
 # -*- coding:utf-8 -*-
 import time
 import os
+import traceback
 if os.name == 'nt':
     import win32api
 from datetime import datetime
@@ -14,12 +15,14 @@ def adjust_server_time(func, login_username):
     logger = Logger(login_username).set_logger()
     logger.info('===============================更新本地时间==============================')
     t_diff, t_server_real_time, t_server_datetime, t_reach, t_reach_min, t_local, t_reach_server_leading_in_millie_sec = func(True)
-    
     if os.name == "nt":
         _nt_set_time(t_server_real_time)
     else:
-        _linux_set_time(t_server_real_time)
-    
+        try:
+            _linux_set_time(t_server_real_time)
+        except Exception as e:
+            traceback.print_exc()
+            
     t_local_adjusted = get_now_datetime()
 
     logger.info('本地时间                             %s', t_local)
@@ -34,7 +37,6 @@ def _linux_set_time(t_server_real_time):
     import ctypes.util
     import time
     CLOCK_REALTIME = 0
-    time_tuple = t_server_real_time.timetuple()
 
     class timespec(ctypes.Structure):
         _fields_ = [("tv_sec", ctypes.c_long),
@@ -42,9 +44,12 @@ def _linux_set_time(t_server_real_time):
 
     librt = ctypes.CDLL(ctypes.util.find_library("rt"))
 
+    tm_year, tm_mon, tm_mday, tm_hour, tm_min, tm_sec, tm_wday, tm_yday, tm_isdst = time.gmtime(time.mktime(t_server_real_time.timetuple()))
+    msec = t_server_real_time.microsecond / 1000
+
     ts = timespec()
-    ts.tv_sec = int( time.mktime(datetime(*time_tuple[:6]).timetuple()))
-    ts.tv_nsec = time_tuple[6] * 1000000 # Millisecond to nanosecond
+    ts.tv_sec = tm_sec
+    ts.tv_nsec = int(msec)
 
     # http://linux.die.net/man/3/clock_settime
     librt.clock_settime(CLOCK_REALTIME, ctypes.byref(ts))

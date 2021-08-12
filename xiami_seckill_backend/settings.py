@@ -27,8 +27,10 @@ SECRET_KEY = 'django-insecure-i#s-yj2p##h6s8)b6$loaj7*q^z6q+@jy35+bqwpp^lrwo$p^c
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = [
+    'localhost',
+    '47.95.14.243'
+]
 
 # Application definition
 
@@ -59,11 +61,13 @@ MIDDLEWARE = [
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8080"
+    "http://localhost:8080",
+    "http://47.95.14.243"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'localhost:8080',
+    "http://47.95.14.243"
 ]
 
 CORS_ALLOW_METHODS = [
@@ -130,7 +134,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'xiami_seckill',
         'USER': 'root',
-        'PASSWORD': 'root',
+        'PASSWORD': 'Xucinn6u!',
         'HOST': 'localhost', 
         'PORT': '3306',
     }
@@ -171,14 +175,13 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
-
 USE_I18N = True
 
 USE_L10N = True
 
 USE_TZ = True
 
+TIME_ZONE = 'Asia/Shanghai'
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.2/howto/static-files/
