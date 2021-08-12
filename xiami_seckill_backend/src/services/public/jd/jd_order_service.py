@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from daos.db.jd_order_dao import JDOrderDao
+from daos.db.jd.jd_order_dao import JDOrderDao
 from services.public.common.login_user_service import LoginUserService
 
 from utils.util import (

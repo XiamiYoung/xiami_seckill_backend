@@ -1,5 +1,5 @@
-from daos.db.jd_user_dao import JDUserDao
-from daos.db.jd_user_arrangement_dao import JDUserArrangementDao
+from daos.db.jd.jd_user_dao import JDUserDao
+from daos.db.jd.jd_user_arrangement_dao import JDUserArrangementDao
 from services.public.common.login_user_service import LoginUserService
 from config.error_dict import error_dict
 from exception.restful_exception import RestfulException
