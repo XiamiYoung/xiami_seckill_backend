@@ -2389,7 +2389,7 @@ class JDSeckillService(object):
                 self.log_stream_info('移动端cookie有效')
             else:
                 self.is_login = False
-                self.log_stream_error('测试移动端cookie测试有效性失败：%s', str(e))
+                self.log_stream_error('测试移动端cookie测试有效性失败')
                 if self.emailer:
                     self.emailer.send(subject='用户' + self.nick_name + '移动端cookie测试有效性失败', content='请重新登录')
                 raise RestfulException(error_dict['SERVICE']['JD']['USER_MOBILE_COOKIE_FAILURE'])
