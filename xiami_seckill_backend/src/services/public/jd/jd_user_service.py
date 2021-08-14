@@ -90,3 +90,8 @@ class JDUserService(object):
     def update_jd_user_push_email(self, user_name, nick_name, user_options):
         user_model = self.login_user_service.find_user_by_username(user_name, is_return_model=True)
         self.jd_user_dao.update_jd_user_push_email(user_model, nick_name, user_options)
+
+    def update_jd_user_enabled(self, user_name, nick_name, enabled):
+        user_model = self.login_user_service.find_user_by_username(user_name, is_return_model=True)
+        self.jd_user_dao.update_jd_user_enabled(user_model, nick_name, enabled)
+        

@@ -51,6 +51,7 @@ urlpatterns = [
     path('site/jd/save-jd-user-pwd', jd_controller.save_jd_user_pwd),
     path('site/jd/save-jd-user-push-token', jd_controller.save_jd_user_push_token),
     path('site/jd/save-jd-user-push-email', jd_controller.save_jd_user_push_email),
+    path('site/jd/save-jd-user-enabled', jd_controller.save_jd_user_enabled),
     path('site/jd/get-sku-by-id', jd_controller.get_sku_by_id),
     path('site/jd/add-custom-sku', jd_controller.add_custom_sku_info_to_cache),
     path('site/jd/get-custom-sku', jd_controller.get_custom_sku_data),

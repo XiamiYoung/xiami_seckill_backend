@@ -730,6 +730,28 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
+    def save_jd_user_enabled(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        enabled = data['enabled']
+        login_username = self._get_login_username(request)
+
+        # get JD User service
+        jd_user_service = self._get_jd_user_service()  
+
+        self.execute_in_thread(jd_user_service.update_jd_user_enabled, (login_username, nick_name, enabled))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
     def get_jd_user_arrangement(self, request):
         login_username = self._get_login_username(request)
 

@@ -68,6 +68,16 @@ class JDUserDao(object):
         finally:
             connection.close()
 
+    def update_jd_user_enabled(self, user_model, nick_name, enabled):
+        try:
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
+            jd_user_model = jd_user_qs.first()
+            jd_user_model.enabled = enabled
+
+            jd_user_model.save()
+        finally:
+            connection.close()
+
     def save_or_update_jd_enduser(self, data, user_model):
         try:
             exists = False
@@ -94,6 +104,7 @@ class JDUserDao(object):
                 jd_user_model.mobile_cookie_expire_ts = data.get('mobile_cookie_expire_ts', '')
                 jd_user_model.mobile_cookie_expire_ts_label = data.get('mobile_cookie_expire_ts_label', '')
                 jd_user_model.leading_time = data.get('leading_time', int(global_config.get('config', 'default_order_leading_in_millis')))
+                jd_user_model.enabled = data.get('enabled', True)
                 jd_user_model.user = user_model
             else:
                 jd_user_model = JDUser(
@@ -114,6 +125,7 @@ class JDUserDao(object):
                                         mobile_cookie_expire_ts = data.get('mobile_cookie_expire_ts', ''),
                                         mobile_cookie_expire_ts_label = data.get('mobile_cookie_expire_ts_label', ''),
                                         leading_time = data.get('leading_time', int(global_config.get('config', 'default_order_leading_in_millis'))),
+                                        enabled = data.get('enabled', True),
                                         user = user_model
                                     )
             jd_user_model.save()

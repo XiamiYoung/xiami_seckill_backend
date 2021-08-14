@@ -26,3 +26,4 @@ class JDUser(BaseModel):
     jd_pwd = models.TextField(blank=True, default='')
     push_email = models.TextField(blank=True, default='')
     push_token = models.TextField(blank=True, default='')
+    enabled = models.BooleanField(default=True)
