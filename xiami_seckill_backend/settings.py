@@ -29,7 +29,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'localhost',
-    '123.56.131.155'
+    '123.57.212.54'
 ]
 
 # Application definition
@@ -62,12 +62,12 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080",
-    "http://123.56.131.155"
+    "http://123.57.212.54"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'localhost:8080',
-    "http://123.56.131.155"
+    "http://123.57.212.54"
 ]
 
 CORS_ALLOW_METHODS = [

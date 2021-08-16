@@ -127,6 +127,7 @@ class JDSeckillService(object):
         self.logger_group = ''
         self.logger_consumer = ''
         self.stream_enabled = False
+        self.temp_order_traditional = False
         self.login_username = ''
         self.payment_pwd = ''
 
@@ -1270,7 +1271,7 @@ class JDSeckillService(object):
             else:
                 if modifyResult['allCount'] == 0:
                     self.log_stream_info('购物车商品已被删除，重新添加')
-                    self.create_temp_order()
+                    self.create_temp_order(is_add_cart_item=True)
                     return True
             self.is_ready_place_order = modifyResult['selectedCount'] == modifyResult['allCount']
             if self.is_ready_place_order:
@@ -1776,6 +1777,9 @@ class JDSeckillService(object):
                 else:
                     if not self.failure_msg:
                         self.failure_msg = message
+                        if '正在进行预约抢购活动，暂不支持购买' in message:
+                            self.log_stream_info('预约商品不支持移动端有货下单模式，切换到PC端')
+                            self.temp_order_traditional = True
                     self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
                 return False
         except Exception as e:
@@ -1868,6 +1872,8 @@ class JDSeckillService(object):
                 return order_id
             else:
                 message, result_code = resp_json.get('errMsg'), resp_json.get('errId')
+                if '正在进行预约抢购活动，暂不支持购买' in message:
+                    self.temp_order_traditional = True
                 self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
                 self.log_stream_info(resp_json)
                 return False
@@ -2826,13 +2832,29 @@ class JDSeckillService(object):
             time.sleep(sleep_interval)
             self.create_temp_order_type_one()
 
-    def create_temp_order(self, is_select_cart=True, round=0):
-        if self.create_order_round % 2 == 0:
+    @fetch_latency
+    def create_temp_order_traditional(self, is_add_cart_item=False):
+        if is_add_cart_item:
+            self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
+        else:
+            # 选中购物车
+            self.select_all_cart_item()
+        # 使用优惠券
+        self.get_best_coupons()
+        # 提前刷新订单
+        self.get_order_coupons()
+        # 保存默认地址
+        self.save_address()
+
+    def create_temp_order(self, is_select_cart=True, is_add_cart_item=False):
+        if self.temp_order_traditional:
+            self.create_temp_order_traditional(is_add_cart_item)
+        elif self.create_order_round % 2 == 0:
             self.create_temp_order_type_one()
         else:
             self.create_temp_order_type_two()
 
-        if is_select_cart:
+        if not self.temp_order_traditional and is_select_cart:
             self.select_all_cart_item()
         self.create_order_round += 1
     
@@ -3009,6 +3031,8 @@ class JDSeckillService(object):
 
             # 重置错误信息
             self.failure_msg = ""
+            # 重置temp订单模式
+            self.temp_order_traditional = False
 
             # 检查传入参数
             self.validate_params(sku_id, num)
@@ -3591,7 +3615,7 @@ class JDSeckillService(object):
         self.stream_enabled = True
 
         # 检查是否已有计划运行中
-        if(self.is_jd_user_has_running_task(login_username, nick_name)):
+        if(self.jd_user_has_running_task(login_username, nick_name)):
             self.log_stream_info('=========================================================================')
             self.log_stream_info('用户%s已有运行计划，忽略此次运行', self.nick_name)
             self.log_stream_info('=========================================================================')
@@ -3612,15 +3636,15 @@ class JDSeckillService(object):
         self.cache_dao.push_to_stream(self.logger_stream, build_stream_message('初始化运行日志', level))
         # self.cache_dao.create_stream_group(self.logger_stream, self.logger_group)
 
+        if leading_time:
+            self.order_leading_in_millis = float(leading_time)
+
         # 初始化状态
         for arrangement_item in execution_arrangement_array:
             target_time = arrangement_item.get('target_time').strip()
             
             # 更新分步状态
             self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_PLANNED)
-
-        if leading_time:
-            self.order_leading_in_millis = float(leading_time)
 
         # 开始分步执行
         for arrangement_item in execution_arrangement_array:
@@ -3698,7 +3722,7 @@ class JDSeckillService(object):
                 return True
         return False
 
-    def is_jd_user_has_running_task(self, login_username, nick_name):
+    def jd_user_has_running_task(self, login_username, nick_name):
         self.execution_status_cache_key = 'seckill_arrangement_' + login_username
         arrangement_status_cache_value = self.cache_dao.get(self.execution_status_cache_key)
         if arrangement_status_cache_value:
@@ -3709,7 +3733,7 @@ class JDSeckillService(object):
                             return True
         return False
 
-    def add_or_remove_arrangement(self, target_time, login_username, nick_name, is_add):
+    def add_or_remove_arrangement(self, leading_time, target_time, login_username, nick_name, is_add):
         lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
         
         try:
@@ -3729,6 +3753,7 @@ class JDSeckillService(object):
                 if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
                     arrangement_cache_status_item = {
                         'nick_name': nick_name,
+                        'leading_time': leading_time,
                         'seckill_arangement':[]
                     }
                     arrangement_cache_status_arangement_item = {
@@ -3788,6 +3813,7 @@ class JDSeckillService(object):
                 arrangement_status_cache_value = []
                 arrangement_cache_status_item = {
                     'nick_name': nick_name,
+                    'leading_time': self.order_leading_in_millis,
                     'seckill_arangement':[]
                 }
                 for arrangement_item in execution_arrangement_array:
@@ -3802,6 +3828,7 @@ class JDSeckillService(object):
                 if not self.is_jd_user_status_in_cache(arrangement_status_cache_value, nick_name):
                     arrangement_cache_status_item = {
                         'nick_name': nick_name,
+                        'leading_time': self.order_leading_in_millis,
                         'seckill_arangement':[]
                     }
                     for arrangement_item in execution_arrangement_array:

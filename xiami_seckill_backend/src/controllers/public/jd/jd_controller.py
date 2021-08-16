@@ -400,6 +400,7 @@ class JDController(JDBaseController):
     def add_or_remove_arrangement(self, request):
         # get data
         data = str_to_json(request.body)
+        leading_time = data['leading_time']
         target_time = data['target_time']
         nick_name = data['nick_name']
         is_add = data['is_add']
@@ -409,7 +410,7 @@ class JDController(JDBaseController):
         jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        self.execute_in_thread(jd_seckill_service.add_or_remove_arrangement, (target_time, login_username, nick_name, is_add))
+        self.execute_in_thread(jd_seckill_service.add_or_remove_arrangement, (leading_time, target_time, login_username, nick_name, is_add))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -739,7 +740,12 @@ class JDController(JDBaseController):
 
         # get JD User service
         jd_user_service = self._get_jd_user_service()  
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service(login_username) 
 
+        # remove arrangement
+        jd_seckill_service.delete_arrangement_item(login_username, nick_name)
+        # switch user
         self.execute_in_thread(jd_user_service.update_jd_user_enabled, (login_username, nick_name, enabled))
 
         # send response

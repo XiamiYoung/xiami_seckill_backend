@@ -5,7 +5,7 @@ python3 manage.py migrate xiami_seckill_backend
 
 py manage.py runserver 0.0.0.0:8000
 
-47.95.14.243
+123.57.212.54
 cd /root/xiami_seckill/xiami_seckill_backend/
 
 mysql -u root -p
@@ -52,6 +52,7 @@ userExecutionStatus: [
 	'arrangement':[
 		{
 			'jd_user_name':'大大大大大大虾米',
+			'leading_time':80,
 			'seckill_arangement':[
 				{
 					'target_time':'2021-07-26 18:00:00.000',
@@ -67,6 +68,7 @@ userExecutionStatus: [
 		},
 		{
 			'jd_user_name':'樱淇amy',
+			'leading_time':80,
 			'seckill_arangement':[
 				{
 					'target_time':'2021-07-26 18:00:00.000',
@@ -109,10 +111,13 @@ userExecutionStatus: [
 django cors请求ip
 部署代码
 
+123.57.212.54
 systemctl start redis
 启动前后台服务
-sh /root/xiami_seckill/node-server/startServer.sh
-sh /root/xiami_seckill/xiami_seckill_backend/startServer.sh
+cd /root/xiami_seckill/node-server/
+sh startServer.sh
+cd /root/xiami_seckill/xiami_seckill_backend/
+sh startServer.sh
 
 硬盘价格 0.01/h -> 7.2/m -> 86.4/y
 实例按需 0.069/h -> 1.656/d -> 49.68/m -> 596.16/y
