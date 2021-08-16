@@ -3675,7 +3675,7 @@ class JDSeckillService(object):
             if not self.execution_keep_running:
                 self.update_arrangement_status(execution_arrangement_array, target_time, login_username, nick_name, ARRANGEMENT_EXEC_STATUS_CANCELLED)
                 self.log_stream_info('=========================================================================')
-                self.log_stream_info('用户%s抢购计划已取消', self.nick_name)
+                self.log_stream_info('用户%s抢购计划已终止', self.nick_name)
                 self.log_stream_info('=========================================================================')
                 return
 
