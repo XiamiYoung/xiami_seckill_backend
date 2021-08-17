@@ -1707,7 +1707,7 @@ class JDSeckillService(object):
 
         :return: True/False 订单提交结果
         """
-        url = 'https://trade.jd.com/shopping/order/submitOrder.action'
+        url = 'https://trade.jd.com/shopping/order/submitOrder.action?&presaleStockSign=1'
         # js function of submit order is included in https://trade.jd.com/shopping/misc/js/order.js?r=2018070403091
 
         data = {
@@ -1722,7 +1722,8 @@ class JDSeckillService(object):
             'submitOrderParam.jxj': 1,
             'submitOrderParam.eid': self.eid,
             'submitOrderParam.fp': self.fp,
-            'submitOrderParam.needCheck': 1
+            'submitOrderParam.needCheck': 1,
+            'presaleStockSign': 1
         }
 
         if self.has_presale_product: 
