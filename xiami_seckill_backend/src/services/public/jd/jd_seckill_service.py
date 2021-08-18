@@ -29,6 +29,7 @@ from daos.cache.redis import CacheDao
 import redis_lock
 from config.constants import (
     DEFAULT_TIMEOUT,
+    DEFAULT_PC_USER_AGENT,
     DEFAULT_MOBILE_USER_AGENT,
     ARRANGEMENT_EXEC_STATUS_PLANNED,
     ARRANGEMENT_EXEC_STATUS_RUNNING,
@@ -88,7 +89,8 @@ from utils.token_util import (
 class JDSeckillService(object):
 
     def __init__(self, login_username=''):
-        self.user_agent = get_random_useragent()
+        # self.user_agent = get_random_useragent()
+        self.user_agent = DEFAULT_PC_USER_AGENT
         self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
         self.try_post_failure_in_mins = float(global_config.get('config', 'try_post_failure_in_mins'))
         self.try_post_failure_count = int(global_config.get('config', 'try_post_failure_count'))
@@ -885,7 +887,7 @@ class JDSeckillService(object):
 
             sku_state = resp_json[sku_id].get('skuState')  # 商品是否上架
             stock_state = resp_json[sku_id].get('StockState')  # 商品库存状态：33 -- 现货  0,34 -- 无货  36 -- 采购中  40 -- 可配货
-            if stock_state == 33 or stock_state == 36 or stock_state == 40:
+            if sku_state == 1 and stock_state in (33, 36, 40):
                 self.log_stream_info('===============================发现库存===========================================')
             self.log_stream_info('库存状态: %s', self.stock_state_map[str(stock_state)])
             return sku_state == 1 and stock_state in (33, 36, 40)
@@ -1821,7 +1823,7 @@ class JDSeckillService(object):
             'savepayship':0,
             'sceneval':2,
             'callback':'confirmCbA',
-            'skulist':build_target_sku_id_list(self.target_sku_id),
+            'skulist':build_target_sku_id_list([self.target_sku_id]),
             'rtk': gen_int_with_len(32),
             'sceneval':2
         }
@@ -1876,7 +1878,7 @@ class JDSeckillService(object):
                 if '正在进行预约抢购活动，暂不支持购买' in message:
                     self.temp_order_traditional = True
                 self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
-                self.log_stream_info(resp_json)
+                self.log_stream_info(json_to_str(resp_json))
                 return False
         except Exception as e:
             if not is_fake:
@@ -1908,6 +1910,40 @@ class JDSeckillService(object):
                 self.submit_order(is_multi_thread, self, thread_index)
             if self.order_id:
                 client_label = 'PC端'
+                self.log_stream_info('使用%s第%s次下单成功', client_label, i)
+                return self.order_id
+            else:
+                if i <= retry:
+                    self.log_stream_info('第%s次下单失败，%ss后重试', i, interval)
+                    self.create_temp_order()
+                    time.sleep(interval)
+        else:
+            self.log_stream_info('重试提交%s次结束', retry)
+            return False
+
+    def submit_order_with_retry_mobile(self, is_multi_thread, retry=10, interval=2):
+        """提交订单，并且带有重试功能
+        :param retry: 重试次数
+        :param interval: 重试间隔
+        :return: 订单提交结果 True/False
+        """
+        self.order_id = ''
+        for i in range(1, retry + 1):
+            if is_multi_thread:
+                thread_count = 4
+
+                for thread_index in range (1, thread_count):
+                    t = threading.Thread(target=self.submit_order, args=(is_multi_thread, self,thread_index))
+                    t.daemon = True
+                    t.start()
+
+                while not self.order_id and (self.executed_thread_count != thread_count-1):
+                    time.sleep(0.01)
+            else:
+                thread_index = 0
+                self.submit_order_mobile()
+            if self.order_id:
+                client_label = 'mobile端'
                 self.log_stream_info('使用%s第%s次下单成功', client_label, i)
                 return self.order_id
             else:
@@ -2192,7 +2228,8 @@ class JDSeckillService(object):
         url = 'https://item-soa.jd.com/getWareBusiness?skuId={}'.format(sku_id)
 
         headers = {
-            'User-Agent': self.user_agent
+            'User-Agent': get_random_useragent(),
+            'Host': 'item-soa.jd.com'
         }
 
         resp = self.sess.get(url=url, headers=headers)
@@ -2938,10 +2975,9 @@ class JDSeckillService(object):
             return False
 
         # 开始前leading_in_sec检查cookie
-        type = 'PC端'
         leading_in_sec = 20*60
         sleep_interval = 10
-        title = '抢购前[{0}]分钟检查[{1}]cookie'.format(leading_in_sec / 60, type)
+        title = '抢购前[{0}]分钟检查cookie'.format(leading_in_sec / 60)
         self.call_function_with_leading_time(title, sleep_interval, self.check_cookie_valid, target_time, leading_in_sec)
 
         # 设置取消检查点
@@ -3142,7 +3178,7 @@ class JDSeckillService(object):
                 return []
             
             # 等待到下单时间
-            title = '抢购(PC端)'
+            title = '抢购(mobile端)'
             t = Timer(service_ins=self, target_time=adjusted_target_time, cache_key=self.execution_cache_key)
             running_flag = t.start(title)
             if not running_flag:
@@ -3163,6 +3199,7 @@ class JDSeckillService(object):
                     submit_interval = 0.1
                     is_multi_thread = False
                     
+                    # order_id = ''
                     order_id = self.submit_order_with_retry(is_multi_thread, submit_retry_count, submit_interval)
 
                     if order_id:

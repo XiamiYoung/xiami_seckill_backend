@@ -73,6 +73,7 @@ DEFAULT_TIMEOUT = 1
 
 # User Agent
 DEFAULT_MOBILE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.85 Mobile Safari/537.36'
+DEFAULT_PC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko'
 
 # Execution status
 ARRANGEMENT_EXEC_STATUS_PLANNED = 'planned'
