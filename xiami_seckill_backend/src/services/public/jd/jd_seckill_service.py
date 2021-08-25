@@ -693,10 +693,11 @@ class JDSeckillService(object):
             self.log_stream_info("正在获取移动端cookie，请在手机%s短信查看验证码", mobile_num)
             chrome_options = Options()
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            chrome_options.add_argument("--no-sandbox"); # Bypass OS security model
             chrome_options.add_argument('--headless')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument("--disable-extensions"); #disabling extensions
+            chrome_options.add_argument("--disable-gpu"); #applicable to windows os only
+            chrome_options.add_argument("--disable-dev-shm-usage"); #overcome limited resource problems
             driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
             url = 'https://plogin.m.jd.com/login/login?appid=300&returnurl=https%3A%2F%2Fwq.jd.com%2Fpassport%2FLoginRedirect%3Fstate%3D1101471000236%26returnurl%3Dhttps%253A%252F%252Fhome.m.jd.com%252FmyJd%252Fnewhome.action%253Fsceneval%253D2%2526ufc%253D%2526&source=wq_passport'
             driver.get(url)
@@ -2059,7 +2060,7 @@ class JDSeckillService(object):
             self.seckill_init_info[sku_id] = self._get_seckill_init_info(sku_id)
 
         init_info = self.seckill_init_info.get(sku_id)
-        default_address = init_info['addressList'][0]  # 默认地址dict
+        default_address = init_info['address']  # 默认地址dict
         invoice_info = init_info.get('invoiceInfo', {})  # 默认发票信息dict, 有可能不返回
         token = init_info['token']
 
@@ -2087,7 +2088,7 @@ class JDSeckillService(object):
             'invoicePhone': invoice_info.get('invoicePhone', ''),
             'invoicePhoneKey': invoice_info.get('invoicePhoneKey', ''),
             'invoice': 'true' if invoice_info else 'false',
-            'password': global_config.get('account', 'payment_pwd'),
+            'password': self.payment_pwd,
             'codTimeType': 3,
             'paymentType': 4,
             'areaCode': '',
@@ -2176,7 +2177,9 @@ class JDSeckillService(object):
                 return order_id
             else:
                 self.log_stream_info('休息%ss', submit_interval)
-                time.sleep(submit_interval)
+                if not sleep_with_check(submit_interval, self.execution_cache_key):
+                    self.execution_keep_running = False
+                    return False
         else:
             self.log_stream_info('执行结束，抢购%s失败！', sku_id)
             return False
@@ -2242,8 +2245,11 @@ class JDSeckillService(object):
         sku_info['imageUrl'] = imageUrl
         sku_info['stock_info'] = self.stock_state_map[str(resp_json['stockInfo']['stockState'])]
         sku_info['list_price'] = resp_json['price']['m']
-        sku_info['original_price'] = resp_json['price']['op']
         sku_info['current_price'] = resp_json['price']['p']
+        if 'op' in resp_json['price'] and resp_json['price']['op']:
+            sku_info['original_price'] = resp_json['price']['op']
+        else:
+            sku_info['original_price'] = sku_info['current_price']
         sku_info['is_seckill_product'] = False
         sku_info['is_reserve_product'] = False
         sku_info['is_presale_product'] = False
@@ -3178,7 +3184,7 @@ class JDSeckillService(object):
                 return []
             
             # 等待到下单时间
-            title = '抢购(mobile端)'
+            title = '抢购'
             t = Timer(service_ins=self, target_time=adjusted_target_time, cache_key=self.execution_cache_key)
             running_flag = t.start(title)
             if not running_flag:
@@ -3228,12 +3234,12 @@ class JDSeckillService(object):
             # 结束后步骤
             order_id_list = self.actions_after_order_submit(order_id_list, target_time, t_order_start)
 
-            self.log_stream_info('=====================抢购结束[时间提前:%sms][Debug模式:%s]============================', self.order_leading_in_millis, self.bool_map[str(self.is_debug_mode)])
-
             if not order_id_list or len(order_id_list) == 0:
                 return False
             else:
                 self.save_order(order_id)
+
+            self.log_stream_info('=====================抢购结束[时间提前:%sms][Debug模式:%s]============================', self.order_leading_in_millis, self.bool_map[str(self.is_debug_mode)])
 
             # for submitted_order_id in order_id_list:
             #     self.cancel_order(submitted_order_id)
@@ -3478,6 +3484,10 @@ class JDSeckillService(object):
                         self.execution_keep_running = False
                         return []
                     continue
+                else:
+                    if not self.execution_keep_running:
+                        should_countinue = False
+                        return []
 
         return order_id_list
 
