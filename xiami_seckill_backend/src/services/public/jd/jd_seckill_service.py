@@ -688,7 +688,7 @@ class JDSeckillService(object):
         self.cache_dao.put(login_username + '_' + nick_name + "_mobile_code", mobile_code)
 
     def mobile_login(self, login_username, nick_name, mobile_num):
-        driver = ''
+        driver = None
         try:
             self.log_stream_info("正在获取移动端cookie，请在手机%s短信查看验证码", mobile_num)
             chrome_options = Options()
@@ -698,7 +698,13 @@ class JDSeckillService(object):
             chrome_options.add_argument("--disable-extensions"); #disabling extensions
             chrome_options.add_argument("--disable-gpu"); #applicable to windows os only
             chrome_options.add_argument("--disable-dev-shm-usage"); #overcome limited resource problems
-            driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
+            chrome_options.add_argument('blink-settings=imagesEnabled=false')
+            try:
+                driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
+            except Exception as e:
+                self.log_stream_error(e)
+                # retry
+                driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
             url = 'https://plogin.m.jd.com/login/login?appid=300&returnurl=https%3A%2F%2Fwq.jd.com%2Fpassport%2FLoginRedirect%3Fstate%3D1101471000236%26returnurl%3Dhttps%253A%252F%252Fhome.m.jd.com%252FmyJd%252Fnewhome.action%253Fsceneval%253D2%2526ufc%253D%2526&source=wq_passport'
             driver.get(url)
 
@@ -711,7 +717,7 @@ class JDSeckillService(object):
             mobile_result_cache_key = login_username + '_' + nick_name + "_mobile_code_result"
             mobile_code_running_cache_key = login_username + '_' + nick_name + "_mobile_code_running"
             user_input_mobile_code = ''
-            retry_times = 100
+            retry_times = 200
             self.cache_dao.put(mobile_code_running_cache_key, 1)
 
             error_diag = driver.find_elements_by_class_name("dialog-des")
@@ -793,6 +799,11 @@ class JDSeckillService(object):
                 self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
         except Exception as e:
             self.log_stream_error(e)
+            cache_value_dict = {
+                'success': False,
+                'msg': '系统错误'
+            }
+            self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
             raise RestfulException(error_dict['SERVICE']['JD']['MOBILE_LOGIN_FAILURE'])
         finally:
             if driver:
