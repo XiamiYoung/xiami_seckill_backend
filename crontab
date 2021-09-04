@@ -1,0 +1,2 @@
+crontab -e
+@reboot /root/xiami_seckill/xiami_seckill_backend/startup.sh > /root/xiami_seckill/xiami_seckill_backend/crontab.out 2>&1
