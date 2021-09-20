@@ -41,6 +41,7 @@ from config.constants import (
     DEFAULT_CACHE_TTL,
     DEFAULT_CACHE_STATUS_TTL,
     DEFAULT_CACHE_SECKILL_INFO_TTL,
+    DEFAULT_CACHE_MOBILE_CODE,
     SECKILL_INFO_CACHE_KEY,
     LOCK_KEY_SECKILL_ARRANGEMENT,
     LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT,
@@ -661,17 +662,17 @@ class JDSeckillService(object):
         """获取用户信息
         :return: 用户名
         """
-        url = 'https://wq.jd.com/pinbind/accountInfo?sceneval=2&g_login_type=1&callback=jsonpCBKA&g_ty=ls'
+        url = 'https://me-api.jd.com/user_new/info/GetJDUserInfoUnion'
         headers = {
             'User-Agent': self.mobile_user_agent,
-            'referer': 'https://wqs.jd.com/'
+            'referer': 'https://home.m.jd.com/'
         }
         try:
             resp = self.sess.get(url=url, headers=headers)
-            resp_json = parse_json(parse_callback_str(resp.text))
-            if not resp_json.get('currPinInfo'):
+            resp_json = parse_json(resp.text)
+            if not resp_json.get('data').get('userInfo').get('baseInfo').get('nickname'):
                 return False
-            return resp_json.get('currPinInfo').get('pin')
+            return resp_json.get('data').get('userInfo').get('baseInfo').get('nickname')
         except Exception as e:
             return False
 
@@ -694,7 +695,7 @@ class JDSeckillService(object):
             chrome_options = Options()
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument("--no-sandbox"); # Bypass OS security model
-            chrome_options.add_argument('--headless')
+            # chrome_options.add_argument('--headless')
             chrome_options.add_argument("--disable-extensions"); #disabling extensions
             chrome_options.add_argument("--disable-gpu"); #applicable to windows os only
             chrome_options.add_argument("--disable-dev-shm-usage"); #overcome limited resource problems
@@ -718,7 +719,9 @@ class JDSeckillService(object):
             mobile_code_running_cache_key = login_username + '_' + nick_name + "_mobile_code_running"
             user_input_mobile_code = ''
             retry_times = 200
-            self.cache_dao.put(mobile_code_running_cache_key, 1)
+            self.cache_dao.put(mobile_code_running_cache_key, 1, DEFAULT_CACHE_MOBILE_CODE)
+
+            time.sleep(1)
 
             error_diag = driver.find_elements_by_class_name("dialog-des")
             if error_diag:
@@ -766,37 +769,27 @@ class JDSeckillService(object):
             mobile_cookies = requests.utils.cookiejar_from_dict(json.loads(cookie_dict_str), cookiejar=None, overwrite=True)
             self.sess.cookies.update(mobile_cookies)
             
-            mobile_nick_name = self.get_user_info_mobile()
+            self.log_stream_info("移动端登录成功")
+            jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, nick_name, is_mask_jd_pwd=True)
 
-            if mobile_nick_name:
-                self.log_stream_info("移动端登录成功:%s", mobile_nick_name)
-                jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, nick_name, is_mask_jd_pwd=True)
+            # update pc login status
+            jd_user_data['mobile_cookie_status'] = True
+            jd_user_data['mobile_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
+            jd_user_data['mobile_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
+            jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
+            jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
+            jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
+            jd_user_data['mobile'] = mobile_num
 
-                # update pc login status
-                jd_user_data['mobile_cookie_status'] = True
-                jd_user_data['mobile_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
-                jd_user_data['mobile_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
-                jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
-                jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
-                jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
-                jd_user_data['mobile'] = mobile_num
+            jd_user_data = self.jd_user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
+            if 'jd_pwd' in jd_user_data and jd_user_data['jd_pwd']:
+                jd_user_data['jd_pwd'] = '******'
 
-                jd_user_data = self.jd_user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
-                if 'jd_pwd' in jd_user_data and jd_user_data['jd_pwd']:
-                    jd_user_data['jd_pwd'] = '******'
-
-                cache_value_dict = {
-                    'success': True,
-                    'jd_user_data': jd_user_data
-                }
-                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
-            else:
-                self.log_stream_info("移动端登录失败")
-                cache_value_dict = {
-                    'success': False,
-                    'msg': error_dict['SERVICE']['JD']['MOBILE_CODE_ERROR']['msg']
-                }
-                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+            cache_value_dict = {
+                'success': True,
+                'jd_user_data': jd_user_data
+            }
+            self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
         except Exception as e:
             self.log_stream_error(e)
             cache_value_dict = {
