@@ -662,17 +662,17 @@ class JDSeckillService(object):
         """获取用户信息
         :return: 用户名
         """
-        url = 'https://me-api.jd.com/user_new/info/GetJDUserInfoUnion'
+        url = 'https://wq.jd.com/pinbind/accountInfo?sceneval=2&g_login_type=1&callback=jsonpCBKA&g_ty=ls'
         headers = {
             'User-Agent': self.mobile_user_agent,
-            'referer': 'https://home.m.jd.com/'
+            'referer': 'https://wqs.jd.com/'
         }
         try:
             resp = self.sess.get(url=url, headers=headers)
-            resp_json = parse_json(resp.text)
-            if not resp_json.get('data').get('userInfo').get('baseInfo').get('nickname'):
+            resp_json = parse_json(parse_callback_str(resp.text))
+            if not resp_json.get('currPinInfo'):
                 return False
-            return resp_json.get('data').get('userInfo').get('baseInfo').get('nickname')
+            return resp_json.get('currPinInfo').get('pin')
         except Exception as e:
             return False
 
@@ -690,33 +690,63 @@ class JDSeckillService(object):
 
     def mobile_login(self, login_username, nick_name, mobile_num):
         driver = None
+        mobile_code_cache_key = login_username + '_' + nick_name + "_mobile_code"
+        mobile_result_cache_key = login_username + '_' + nick_name + "_mobile_code_result"
+        mobile_code_running_cache_key = login_username + '_' + nick_name + "_mobile_code_running"
         try:
-            self.log_stream_info("正在获取移动端cookie，请在手机%s短信查看验证码", mobile_num)
+            mobile_emulation = {
+                                "userAgent": "Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1" 
+                                }
             chrome_options = Options()
+            chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument("--no-sandbox"); # Bypass OS security model
-            # chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--headless')
             chrome_options.add_argument("--disable-extensions"); #disabling extensions
             chrome_options.add_argument("--disable-gpu"); #applicable to windows os only
             chrome_options.add_argument("--disable-dev-shm-usage"); #overcome limited resource problems
             chrome_options.add_argument('blink-settings=imagesEnabled=false')
             try:
                 driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
+                self.log_stream_info("chrome driver 加载成功")
             except Exception as e:
                 self.log_stream_error(e)
                 # retry
-                driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
+                retry_chrome_count = 3
+                count = 0
+                while True:
+                    if driver or (count > retry_chrome_count):
+                        self.log_stream_info("chrome driver 加载成功")
+                        break
+                    else:
+                        self.log_stream_info("chrome driver 加载失败, 重试")
+                        if driver:
+                            driver.quit()
+                        time.sleep(3)
+                        driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
+                        count += 1
+
+            if not driver:
+                cache_value_dict = {
+                    'success': False,
+                    'msg': '系统错误'
+                }
+                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+                raise RestfulException(error_dict['SERVICE']['JD']['MOBILE_LOGIN_FAILURE'])
+                
             url = 'https://plogin.m.jd.com/login/login?appid=300&returnurl=https%3A%2F%2Fwq.jd.com%2Fpassport%2FLoginRedirect%3Fstate%3D1101471000236%26returnurl%3Dhttps%253A%252F%252Fhome.m.jd.com%252FmyJd%252Fnewhome.action%253Fsceneval%253D2%2526ufc%253D%2526&source=wq_passport'
             driver.get(url)
 
+            
+
             mobile_input = driver.find_element_by_css_selector("input[type='tel']")
             mobile_input.send_keys(mobile_num)
+            policy_checkbox =driver.find_element_by_class_name('policy_tip-checkbox')
+            policy_checkbox.click()
+
             send_verify_code_btn = driver.find_element_by_css_selector("button[timertext='获取验证码']")
             send_verify_code_btn.click()
 
-            mobile_code_cache_key = login_username + '_' + nick_name + "_mobile_code"
-            mobile_result_cache_key = login_username + '_' + nick_name + "_mobile_code_result"
-            mobile_code_running_cache_key = login_username + '_' + nick_name + "_mobile_code_running"
             user_input_mobile_code = ''
             retry_times = 200
             self.cache_dao.put(mobile_code_running_cache_key, 1, DEFAULT_CACHE_MOBILE_CODE)
@@ -733,6 +763,8 @@ class JDSeckillService(object):
                 }
                 self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
                 return False
+
+            self.log_stream_info("正在获取移动端cookie，请在手机%s短信查看验证码", mobile_num)
 
             for _ in range(retry_times):
                 if self.cache_dao.get(mobile_code_running_cache_key):
@@ -756,7 +788,7 @@ class JDSeckillService(object):
             self.log_stream_info("正在登录")
             time.sleep(3)
 
-            driver.get('https://wqs.jd.com/order/orderlist_merge.shtml')
+            driver.get('https://home.m.jd.com/myJd/newhome.action')
 
             cookies = driver.get_cookies()
 
