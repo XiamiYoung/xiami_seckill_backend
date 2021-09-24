@@ -741,7 +741,7 @@ class JDSeckillService(object):
 
             mobile_input = driver.find_element_by_css_selector("input[type='tel']")
             mobile_input.send_keys(mobile_num)
-            policy_checkbox =driver.find_element_by_class_name('policy_tip-checkbox')
+            policy_checkbox = driver.find_element_by_class_name('policy_tip-checkbox')
             policy_checkbox.click()
 
             send_verify_code_btn = driver.find_element_by_css_selector("button[timertext='获取验证码']")
@@ -801,27 +801,37 @@ class JDSeckillService(object):
             mobile_cookies = requests.utils.cookiejar_from_dict(json.loads(cookie_dict_str), cookiejar=None, overwrite=True)
             self.sess.cookies.update(mobile_cookies)
             
-            self.log_stream_info("移动端登录成功")
-            jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, nick_name, is_mask_jd_pwd=True)
+            mobile_nick_name = self.get_user_info_mobile()
 
-            # update pc login status
-            jd_user_data['mobile_cookie_status'] = True
-            jd_user_data['mobile_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
-            jd_user_data['mobile_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
-            jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
-            jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
-            jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
-            jd_user_data['mobile'] = mobile_num
+            if mobile_nick_name:
+                self.log_stream_info("移动端登录成功:%s", mobile_nick_name)
+                jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, nick_name, is_mask_jd_pwd=True)
 
-            jd_user_data = self.jd_user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
-            if 'jd_pwd' in jd_user_data and jd_user_data['jd_pwd']:
-                jd_user_data['jd_pwd'] = '******'
+                # update pc login status
+                jd_user_data['mobile_cookie_status'] = True
+                jd_user_data['mobile_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
+                jd_user_data['mobile_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
+                jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
+                jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
+                jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
+                jd_user_data['mobile'] = mobile_num
 
-            cache_value_dict = {
-                'success': True,
-                'jd_user_data': jd_user_data
-            }
-            self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+                jd_user_data = self.jd_user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
+                if 'jd_pwd' in jd_user_data and jd_user_data['jd_pwd']:
+                    jd_user_data['jd_pwd'] = '******'
+
+                cache_value_dict = {
+                    'success': True,
+                    'jd_user_data': jd_user_data
+                }
+                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+            else:
+                self.log_stream_info("移动端登录失败")
+                cache_value_dict = {
+                    'success': False,
+                    'msg': error_dict['SERVICE']['JD']['MOBILE_CODE_ERROR']['msg']
+                }
+                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
         except Exception as e:
             self.log_stream_error(e)
             cache_value_dict = {
@@ -2012,8 +2022,9 @@ class JDSeckillService(object):
             'Referer': 'https://item.jd.com/{}.html'.format(sku_id),
         }
         retry_interval = 0.1
+        count = 0
 
-        while True:
+        while count < 500:
             resp = self.sess.get(url=url, headers=headers, params=payload)
             resp_json = parse_json(resp.text)
             if resp_json.get('url'):
@@ -2024,6 +2035,7 @@ class JDSeckillService(object):
                 self.log_stream_info("抢购链接获取成功: %s", seckill_url)
                 return seckill_url
             else:
+                count += 1
                 self.log_stream_info("抢购链接获取失败，%s不是抢购商品或抢购页面暂未刷新，%s秒后重试", sku_id, retry_interval)
                 # 设置取消检查点
                 if not sleep_with_check(retry_interval, self.execution_cache_key):

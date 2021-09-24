@@ -19,13 +19,13 @@ class Logger(object):
         logFileName = LOG_FILENAME_PREFIX + ".log"
         if self.login_username:
             logFileName = LOG_FILENAME_PREFIX + "-" + self.login_username + ".log"
-
+        
+        self.logger.handlers.clear()
         if not self.logger.hasHandlers():
             # file handler
             file_handler = logging.handlers.RotatingFileHandler(
                 logFileName, maxBytes=10485760, backupCount=5, encoding="utf-8")
             file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
             self.logger.addHandler(file_handler)
 
             # console handler
