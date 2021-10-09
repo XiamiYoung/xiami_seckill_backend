@@ -219,22 +219,31 @@ class JDSeckillService(object):
         ticket = None
         retry_times = 10
         self.cache_dao.put(cookie_token+"_running", 1)
-        for _ in range(retry_times):
-            if self.cache_dao.get(cookie_token+"_running"):
-                ticket = self._get_QRcode_ticket(cookie_token)
-                if ticket:
-                    break
-                time.sleep(2)
+        try:
+            for _ in range(retry_times):
+                if self.cache_dao.get(cookie_token+"_running"):
+                    ticket = self._get_QRcode_ticket(cookie_token)
+                    if ticket:
+                        break
+                    time.sleep(2)
+                else:
+                    self.log_stream_info('二维码扫描已取消')
+                    return False
             else:
-                self.log_stream_info('二维码扫描已取消')
-                return False
-        else:
-            cache_value_dict = {
-                'success': False,
-                'msg': error_dict['SERVICE']['JD']['QR_EXPIRED']['msg']
-            }
-            self.cache_dao.put(cookie_token, cache_value_dict)
-            return
+                cache_value_dict = {
+                    'success': False,
+                    'msg': error_dict['SERVICE']['JD']['QR_EXPIRED']['msg']
+                }
+                self.cache_dao.put(cookie_token, cache_value_dict)
+                return
+        except Exception as e:
+                self.cache_dao.delete(cookie_token+"_running")
+                cache_value_dict = {
+                    'success': False,
+                    'reasonCode': error_dict['SERVICE']['JD']['QR_INVALID']['reasonCode']
+                }
+                self.cache_dao.put(cookie_token, cache_value_dict)
+                return
 
         # validate QR code ticket
         if not self._validate_QRcode_ticket(ticket):
@@ -523,6 +532,8 @@ class JDSeckillService(object):
         resp_json = parse_json(resp.text)
         if resp_json['code'] != 200:
             self.log_stream_info('Code: %s, Message: %s', resp_json['code'], resp_json['msg'])
+            if resp_json['code'] == 257:
+                raise RestfulException(error_dict['SERVICE']['JD']['QR_DOWNLOAD_FAILURE'])
             return None
         else:
             self.log_stream_info('已完成手机客户端确认')

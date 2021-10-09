@@ -105,6 +105,10 @@ class JDController(JDBaseController):
             resp_body['body'] = resp_body_data
             response = JsonResponse(resp_body)
         else:
+            if result and 'reasonCode' in result:
+                resp_body_data['reasonCode'] = result['reasonCode']
+            else:
+                resp_body_data['reasonCode'] = 0
             resp_body['body'] = resp_body_data
             response = JsonResponse(resp_body)
 
