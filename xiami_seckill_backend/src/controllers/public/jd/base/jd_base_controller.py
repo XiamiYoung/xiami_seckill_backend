@@ -51,7 +51,7 @@ class JDBaseController(BaseController):
         if jd_user['pc_cookie_str']:
             jd_seckill_service._assign_cookies_from_remote(jd_user['pc_cookie_str'])
         if jd_user['mobile_cookie_str']:
-            jd_seckill_service._assign_cookies_from_remote(jd_user['mobile_cookie_str'])
+            jd_seckill_service._assign_cookies_from_remote(jd_user['mobile_cookie_str'], is_pc_cookie=False)
         jd_seckill_service.set_user_props(jd_user)
         return jd_seckill_service
 
