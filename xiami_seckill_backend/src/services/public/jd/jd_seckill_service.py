@@ -139,6 +139,7 @@ class JDSeckillService(object):
         self.timeout = float(DEFAULT_TIMEOUT)
         self.send_message = True
         self.emailer = None
+        self.system_emailer = Emailer(self, self.default_system_emailer_address, self.default_system_emailer_token)
 
         self.item_cat = dict()
         self.item_vender_ids = dict()  # 记录商家id
@@ -2117,7 +2118,7 @@ class JDSeckillService(object):
         url = 'https://item-soa.jd.com/getWareBusiness?skuId={}'.format(sku_id)
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.4515.131 Safari/537.36'.format(str(random.randint(80, 94))),
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.4515.131 Safari/537.36'.format(str(random.randint(80, 90))),
             'Host': 'item-soa.jd.com'
         }
 
@@ -2126,18 +2127,12 @@ class JDSeckillService(object):
             resp_json = parse_json(resp.text)
         except Exception as e:
             # retry using random num as agent
-            self.log_stream_error('获取秒杀信息失败')
             headers = {
                 'User-Agent': str(int(time.time() * 1000)),
                 'Host': 'item-soa.jd.com'
             }
             resp = self.sess.get(url=url, headers=headers)
             resp_json = parse_json(resp.text)
-
-            # send notification email
-            if not self.emailer:
-                self.emailer = Emailer(self, self.default_system_emailer_address, self.default_system_emailer_token)
-            self.emailer.send(subject='重试获取秒杀信息成功', content='重试获取秒杀信息成功')
 
         sku_info = {}
 
@@ -3527,9 +3522,7 @@ class JDSeckillService(object):
                     self.cache_dao.put(SECKILL_INFO_CACHE_KEY, seckill_jd_cache_value, DEFAULT_CACHE_SECKILL_INFO_TTL)
         except Exception as e:
             self.log_stream_error('获取秒杀信息失败')
-            if not self.emailer:
-                self.emailer = Emailer(self, self.default_system_emailer_address, self.default_system_emailer_token)
-            self.emailer.send(subject='获取秒杀信息失败', content='获取秒杀信息失败')
+            self.system_emailer.send(subject='获取秒杀信息失败', content='获取秒杀信息失败')
             raise RestfulException(error_dict['SERVICE']['JD']['GET_BATCH_SECKILL_FAILURE'])
 
         return parsed_arrange_list
