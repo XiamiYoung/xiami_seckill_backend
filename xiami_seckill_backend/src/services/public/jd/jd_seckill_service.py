@@ -117,7 +117,7 @@ class JDSeckillService(object):
         self.db_prop_secret = global_config.get('config', 'db_prop_secret')
         self.default_system_emailer_address = global_config.get('config', 'default_system_emailer_address')
         self.default_system_emailer_token = global_config.get('config', 'default_system_emailer_token')
-        self.most_delivery_fee = 12
+        self.most_delivery_fee = 20
         self.order_price_threshold = 0
         self.random_sku_price = 0
         self.create_order_round = 0
@@ -2809,8 +2809,8 @@ class JDSeckillService(object):
             if is_check_price:
                 is_silent = True
             order_list = self.get_order_info(is_silent)
+
             # 推送信息
-            
             for unpaid_order_item in order_list:
                 unpaid_order_id = str(unpaid_order_item['order_id'])
                 for submitted_order_id  in order_id_list:
@@ -2871,6 +2871,9 @@ class JDSeckillService(object):
             self.is_marathon_mode = True
         else:
             self.log_stream_info('商品为非marathon抢购模式, 正常下单')
+
+        # 尝试再次预约，以避免类型变动
+        self.make_reserve(sku_id)
         
         self.clear_cart()
 

@@ -29,7 +29,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'localhost',
-    '123.57.143.92'
+    '182.92.111.136'
+]
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8080",
+    "http://182.92.111.136:1111"
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    'localhost:8080',
+    "http://182.92.111.136:1111"
 ]
 
 # Application definition
@@ -58,16 +68,6 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'middleware.token_auth_middleware.TokenAuthMiddleware',
     'middleware.exception_hanlder_middleware.ErrorHandlerMiddleware'
-]
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8080",
-    "http://123.57.143.92"
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    'localhost:8080',
-    "http://123.57.143.92"
 ]
 
 CORS_ALLOW_METHODS = [
