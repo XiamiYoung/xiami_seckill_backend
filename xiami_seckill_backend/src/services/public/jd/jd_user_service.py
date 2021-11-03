@@ -94,4 +94,7 @@ class JDUserService(object):
     def update_jd_user_enabled(self, user_name, nick_name, enabled):
         user_model = self.login_user_service.find_user_by_username(user_name, is_return_model=True)
         self.jd_user_dao.update_jd_user_enabled(user_model, nick_name, enabled)
-        
+
+    def update_jd_user_address(self, user_name, nick_name, recipient_name, full_addr):
+        user_model = self.login_user_service.find_user_by_username(user_name, is_return_model=True)
+        self.jd_user_dao.update_jd_user_address(user_model, nick_name, recipient_name, full_addr)

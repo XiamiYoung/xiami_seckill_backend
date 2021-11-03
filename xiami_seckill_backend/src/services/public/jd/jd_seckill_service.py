@@ -474,7 +474,11 @@ class JDSeckillService(object):
             self.is_reserve_finished = True
             return True
         else:
-            self.log_stream_info("商品预约失败，可能被二维码拦截，请手动预约")
+            self.log_stream_info("商品预约失败，需要在app商品页面手动预约后再试")
+            if not self.failure_msg:
+                self.failure_msg = '商品预约失败，需要在app商品页面手动预约后再试'
+                if self.emailer:
+                    self.emailer.send(subject='用户' + self.nick_name + '需要手动预约商品再试', content='请在app商品页面手动预约')
             return False
 
     def get_user_info(self):
@@ -1380,6 +1384,23 @@ class JDSeckillService(object):
         resp = self.sess.get(url=url, headers=headers, params=payload)
         resp_json = parse_original_json(str_remove_newline(parse_callback_str(resp.text)))
         return resp_json
+
+    def set_user_default_address(self, address_id):
+
+        url = 'https://easybuy.jd.com/address/setAddressAllDefaultById.action'
+        data = {
+            'addressId': address_id
+        }
+        headers = {
+            'User-Agent': self.user_agent,
+            'Referer': 'https://easybuy.jd.com/address/getEasyBuyList.action',
+            'Origin':'https://easybuy.jd.com'
+        }
+
+        resp = self.sess.post(url=url, headers=headers, data=data)
+        if not response_status(resp):
+            return False
+        return True
 
     def is_has_multiple_addr(self, addr_json):
         if len(addr_json) > 1:
@@ -2349,6 +2370,11 @@ class JDSeckillService(object):
         self.log_stream_info('抢购开始前%s分钟检查cookie有效性', leading_in_sec / float(60))
         self.check_individual_client_cookie()
 
+        # 尝试再次预约，以避免类型变动
+        sku_id = self.target_sku_id
+        if not self.make_reserve(sku_id):
+            raise RestfulException(error_dict['SERVICE']['JD']['MANUAL_RESERVE_REQUIRED'])
+
     @fetch_latency
     def update_sys_time(self, target_time, leading_in_sec):
         adjusted_server_time_in_cache = self.get_adjusted_server_time_from_cache(target_time)
@@ -2872,9 +2898,6 @@ class JDSeckillService(object):
         else:
             self.log_stream_info('商品为非marathon抢购模式, 正常下单')
 
-        # 尝试再次预约，以避免类型变动
-        self.make_reserve(sku_id)
-        
         self.clear_cart()
 
     def actions_before_target_time(self, target_time):
@@ -3002,7 +3025,6 @@ class JDSeckillService(object):
             # 自动预约
             if item_info['is_reserve_product'] and item_info['reserve_info']['reserve_state_str'] == '正在预约':
                 if not self.make_reserve(sku_id):
-                    self.log_stream_info('商品预约失败，请手动预约再试')
                     return False
             
             # 尝试添加目标商品到购物车以测试是否可以添加成功

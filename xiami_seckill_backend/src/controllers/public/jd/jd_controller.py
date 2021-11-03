@@ -571,6 +571,56 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
+    def get_jd_user_address(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie_after_login(request, nick_name) 
+
+        address_list = jd_seckill_service.get_user_addr()
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'success': True,
+                            'jd_user_address_list': address_list
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
+    def save_jd_user_address(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        address_id = data['address_id']
+        recipient_name = data['recipient_name']
+        full_addr = data['full_addr']
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie_after_login(request, nick_name)
+        jd_user_service = self._get_jd_user_service()
+
+        flag = jd_seckill_service.set_user_default_address(address_id)
+        if flag:
+            jd_user_service.update_jd_user_address(login_username, nick_name, recipient_name, full_addr)
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'success': flag
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
     def delete_jd_order(self, request):
         data = str_to_json(request.body)
         order_id = data['order_id']

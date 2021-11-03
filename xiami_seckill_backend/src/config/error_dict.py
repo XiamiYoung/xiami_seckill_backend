@@ -138,7 +138,12 @@ error_dict = {
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "010",
                 'httpCode': HTTP_CODE_500,
                 'msg': '初始化秒杀失败'
-            }
+            },
+            'MANUAL_RESERVE_REQUIRED':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "011",
+                'httpCode': HTTP_CODE_500,
+                'msg': '商品需要手动预约'
+            },
         }
     }
 }

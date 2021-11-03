@@ -28,6 +28,8 @@ systemctl start redis
 systemctl enable redis
 systemctl status redis
 
+redis-cli flushall
+
 git
 
 yum install git

@@ -16,6 +16,16 @@ class JDUserDao(object):
         finally:
             connection.close()
 
+    def update_jd_user_address(self, user_model, nick_name, recipient_name, full_addr):
+        try:
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
+            jd_user_model = jd_user_qs.first()
+            jd_user_model.recipient_name = recipient_name
+            jd_user_model.full_addr = full_addr
+            jd_user_model.save()
+        finally:
+            connection.close()
+
     def update_jd_user_leading_time(self, user_model, nick_name, user_options):
         try:
             jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
