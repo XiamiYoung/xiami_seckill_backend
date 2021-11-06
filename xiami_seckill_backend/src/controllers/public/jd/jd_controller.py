@@ -56,6 +56,30 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
+    def cancel_qq_qr_result(self, request):
+        # read data as json
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie(request)
+
+        # cancel qr code scan
+        ret = jd_seckill_service.cancel_qq_qr_result(login_username, nick_name)
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'success': True,
+                            'ret':ret
+                         }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
     def cancel_user_inpu_mobile_code(self, request):
         # read data as json
         data = str_to_json(request.body)
@@ -189,18 +213,17 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
-    def submit_user_mobile_code(self, request):
+    def get_qq_qr_code(self, request):
         # read data as json
         data = str_to_json(request.body)
         nick_name = data['nick_name']
-        mobile_code = data['mobile_code']
         login_username = self._get_login_username(request)
 
         # get JD service
         jd_seckill_service = self._get_jd_seckill_service(login_username) 
 
         # call login service
-        jd_seckill_service.put_user_input_mobile_code(login_username, nick_name, mobile_code)
+        self.execute_in_thread(jd_seckill_service.mobile_login, (login_username, nick_name))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -213,31 +236,7 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
-    def send_mobile_code(self, request):
-        # read data as json
-        data = str_to_json(request.body)
-        nick_name = data['nick_name']
-        mobile = data['mobile']
-        login_username = self._get_login_username(request)
-
-        # get JD service
-        jd_seckill_service = self._get_jd_seckill_service(login_username) 
-
-        # call login service
-        self.execute_in_thread(jd_seckill_service.mobile_login, (login_username, nick_name, mobile))
-
-        # send response
-        resp_body = BaseResBody().to_json_body()
-        resp_body_data = {
-                            'executed':True
-                        }
-        resp_body['body'] = resp_body_data
-        response = JsonResponse(resp_body)
-
-        return response
-
-    @csrf_exempt
-    def check_mobile_code_result(self, request):
+    def check_qq_qr_url_result(self, request):
         # read data as json
         data = str_to_json(request.body)
         nick_name = data['nick_name']
@@ -245,7 +244,45 @@ class JDController(JDBaseController):
 
         # get JD service
         jd_seckill_service = self._get_jd_seckill_service(login_username)  
-        result = jd_seckill_service.check_mobile_code_result(login_username, nick_name)
+        result = jd_seckill_service.check_qq_qr_url_result(login_username, nick_name)
+
+        resp_body_data = {
+                            'success': False
+                        }
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        if result and 'success' in result and result['success']:
+            resp_body_data = {
+                                'success': True,
+                                'src':result['src']
+                            }
+            resp_body['body'] = resp_body_data
+            response = JsonResponse(resp_body)
+        elif result and 'success' in result and not result['success']:
+            resp_body_data = {
+                                'success': False,
+                                'error':result['msg']
+                            }
+            resp_body['body'] = resp_body_data
+            response = JsonResponse(resp_body)    
+        else:
+            resp_body['body'] = resp_body_data
+            response = JsonResponse(resp_body)
+
+        return response
+    
+
+    @csrf_exempt
+    def check_mobile_qr_result(self, request):
+        # read data as json
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service(login_username)  
+        result = jd_seckill_service.check_mobile_qr_result(login_username, nick_name)
 
         resp_body_data = {
                             'success': False
@@ -278,6 +315,30 @@ class JDController(JDBaseController):
         else:
             resp_body['body'] = resp_body_data
             response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
+    def submit_user_security_code(self, request):
+        # read data as json
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        security_code = data['security_code']
+        login_username = self._get_login_username(request)
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service(login_username) 
+
+        # call login service
+        jd_seckill_service.put_user_input_security(login_username, nick_name, security_code)
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
 
         return response
 

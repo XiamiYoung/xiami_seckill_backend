@@ -104,10 +104,10 @@ error_dict = {
                 'httpCode': HTTP_CODE_401,
                 'msg': '二维码下载失败'
             },
-            'MOBILE_CODE_ERROR':{
+            'MOBILE_QR_ERROR':{
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "003",
                 'httpCode': HTTP_CODE_401,
-                'msg': '手机验证码失败'
+                'msg': 'QQ扫码失败'
             },
             'PC_NOT_LOGIN':{
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "005",
@@ -144,6 +144,11 @@ error_dict = {
                 'httpCode': HTTP_CODE_500,
                 'msg': '商品需要手动预约'
             },
+            'MOBILE_QR_UPDATED':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "012",
+                'httpCode': HTTP_CODE_401,
+                'msg': 'QQ扫码失败, 点击关联QQ按钮重新关联'
+            }
         }
     }
 }

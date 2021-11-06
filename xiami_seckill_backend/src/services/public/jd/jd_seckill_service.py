@@ -13,6 +13,9 @@ from bs4 import BeautifulSoup
 import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from utils.time_adjuster import adjust_server_time
 from config.config import global_config
 from config.error_dict import error_dict
@@ -20,6 +23,7 @@ from exception.restful_exception import RestfulException
 from utils.log import Logger
 from utils.emailer import Emailer
 from utils.timer import Timer
+from base64 import b64encode
 import logging
 from services.public.common.login_user_service import LoginUserService
 from services.public.jd.jd_order_service import JDOrderService
@@ -455,7 +459,7 @@ class JDSeckillService(object):
         reserve_url = self._get_reserve_url(sku_id)
         if not reserve_url:
             self.log_stream_info('%s 为非预约商品，跳过预约', sku_id)
-            return
+            return True
         headers = {
             'User-Agent': self.user_agent,
             'Referer': 'https://item.jd.com/{}.html'.format(sku_id),
@@ -519,36 +523,50 @@ class JDSeckillService(object):
         except Exception as e:
             return False
 
-    def check_mobile_code_result(self, login_username, nick_name):
-        mobile_result_cache_key = login_username + '_' + nick_name + "_mobile_code_result"
-        return self.cache_dao.get(mobile_result_cache_key)
+    def check_qq_qr_url_result(self, login_username, nick_name):
+        qq_qr_url_result_cache_key = login_username + '_' + nick_name + "_qq_qr_url_result"
+        return self.cache_dao.get(qq_qr_url_result_cache_key)
 
-    def cancel_mobile_code_input(self, login_username, nick_name):
-        mobile_code_running_cache_key = login_username + '_' + nick_name + "_mobile_code_running"
-        ret = self.cache_dao.delete(mobile_code_running_cache_key)
-        self.log_stream_info('手机验证码输入已取消:%s', ret)
+    def check_mobile_qr_result(self, login_username, nick_name):
+        qq_qr_scan_result_cache_key = login_username + '_' + nick_name + "_qq_qr_scan_result"
+        return self.cache_dao.get(qq_qr_scan_result_cache_key)
 
-    def put_user_input_mobile_code(self, login_username, nick_name, mobile_code):
-        self.cache_dao.put(login_username + '_' + nick_name + "_mobile_code", mobile_code)
+    def cancel_qq_qr_result(self, login_username, nick_name):
+        mobile_qr_running_cache_key = login_username + '_' + nick_name + "_mobile_qr_running"
+        ret = self.cache_dao.delete(mobile_qr_running_cache_key)
+        self.log_stream_info('QQ扫码已取消:%s', ret)
 
-    def mobile_login(self, login_username, nick_name, mobile_num):
+    def put_user_input_security(self, login_username, nick_name, security_code):
+        mobile_security_input_cache_key = login_username + '_' + nick_name + "_mobile_security_input"
+        self.cache_dao.put(mobile_security_input_cache_key, security_code)
+
+    def mobile_login(self, login_username, nick_name):
         driver = None
-        mobile_code_cache_key = login_username + '_' + nick_name + "_mobile_code"
-        mobile_result_cache_key = login_username + '_' + nick_name + "_mobile_code_result"
-        mobile_code_running_cache_key = login_username + '_' + nick_name + "_mobile_code_running"
+        qq_qr_url_result_cache_key = login_username + '_' + nick_name + "_qq_qr_url_result"
+        qq_qr_scan_result_cache_key = login_username + '_' + nick_name + "_qq_qr_scan_result"
+        mobile_qr_running_cache_key = login_username + '_' + nick_name + "_mobile_qr_running"
+        mobile_security_input_cache_key = login_username + '_' + nick_name + "_mobile_security_input"
         try:
+            self.cache_dao.delete(qq_qr_url_result_cache_key)
+            self.cache_dao.delete(qq_qr_scan_result_cache_key)
+            self.cache_dao.delete(mobile_qr_running_cache_key)
+            self.cache_dao.delete(mobile_security_input_cache_key)
+            self.cache_dao.put(mobile_qr_running_cache_key, 1, DEFAULT_CACHE_MOBILE_CODE)
+            user_agent = 'Mozilla/5.0 (Windows NT 10.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.36'
+            # user_agent = 'Mozilla/5.0 (Windows NT 8.0; WOW64) AppleWebKit/536.23.38 (KHTML, like Gecko) Chrome/57.0.2740.20 Safari/536.23.38'
+            print(user_agent)
             mobile_emulation = {
-                                "userAgent": "Mozilla/5.0 (iPad; CPU OS 11_0 like Mac OS X) AppleWebKit/604.1.34 (KHTML, like Gecko) Version/11.0 Mobile/15A5341f Safari/604.1" 
+                                "userAgent": user_agent
                                 }
             chrome_options = Options()
             chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument("--no-sandbox"); # Bypass OS security model
-            chrome_options.add_argument('--headless')
+            # chrome_options.add_argument('--headless')
             chrome_options.add_argument("--disable-extensions"); #disabling extensions
             chrome_options.add_argument("--disable-gpu"); #applicable to windows os only
             chrome_options.add_argument("--disable-dev-shm-usage"); #overcome limited resource problems
-            chrome_options.add_argument('blink-settings=imagesEnabled=false')
+            # chrome_options.add_argument('blink-settings=imagesEnabled=false')
             try:
                 driver = webdriver.Chrome(executable_path=os.path.join(os.path.abspath(os.path.dirname(__name__)), self.google_chrome_driver_name), chrome_options=chrome_options)
                 self.log_stream_info("chrome driver 加载成功")
@@ -574,62 +592,174 @@ class JDSeckillService(object):
                     'success': False,
                     'msg': '系统错误'
                 }
-                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+                self.cache_dao.put(qq_qr_url_result_cache_key, cache_value_dict)
                 raise RestfulException(error_dict['SERVICE']['JD']['MOBILE_LOGIN_FAILURE'])
                 
             url = 'https://plogin.m.jd.com/login/login?appid=300&returnurl=https%3A%2F%2Fwq.jd.com%2Fpassport%2FLoginRedirect%3Fstate%3D1101471000236%26returnurl%3Dhttps%253A%252F%252Fhome.m.jd.com%252FmyJd%252Fnewhome.action%253Fsceneval%253D2%2526ufc%253D%2526&source=wq_passport'
             driver.get(url)
 
-            
-
-            mobile_input = driver.find_element_by_css_selector("input[type='tel']")
-            mobile_input.send_keys(mobile_num)
             policy_checkbox = driver.find_element_by_class_name('policy_tip-checkbox')
             policy_checkbox.click()
 
-            send_verify_code_btn = driver.find_element_by_css_selector("button[timertext='获取验证码']")
-            send_verify_code_btn.click()
+            qq_btn = driver.find_element_by_css_selector("a[report-eventid='MLoginRegister_SMSQQLogin']")
+            qq_btn.click()
 
-            user_input_mobile_code = ''
+            driver.switch_to.frame('ptlogin_iframe')
+            qr_image = driver.find_element_by_css_selector("img[id='qrlogin_img']")
+            encoded = qr_image.screenshot_as_base64
+
+            cache_value_dict = {
+                'success': True,
+                'src': encoded
+            }
+
+            self.cache_dao.put(qq_qr_url_result_cache_key, cache_value_dict, DEFAULT_CACHE_MOBILE_CODE)
+
             retry_times = 200
-            self.cache_dao.put(mobile_code_running_cache_key, 1, DEFAULT_CACHE_MOBILE_CODE)
-
-            time.sleep(1)
-
-            error_diag = driver.find_elements_by_class_name("dialog-des")
-            if error_diag:
-                msg = error_diag[0].text
-                self.log_stream_error("获取移动端cookie失败:%s", msg)
-                cache_value_dict = {
-                    'success': False,
-                    'msg': msg
-                }
-                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
-                return False
-
-            self.log_stream_info("正在获取移动端cookie，请在手机%s短信查看验证码", mobile_num)
 
             for _ in range(retry_times):
-                if self.cache_dao.get(mobile_code_running_cache_key):
-                    user_input_mobile_code = self.cache_dao.get(mobile_code_cache_key)
-                    if user_input_mobile_code:
+                if self.cache_dao.get(mobile_qr_running_cache_key):
+                    current_url = driver.current_url
+                    if current_url.startswith('https://wqs.jd.com/') or current_url.startswith('https://m.jd.com/'):
                         break
+                    elif current_url.startswith('https://plogin.m.jd.com/'):
+                        time.sleep(1)
+
+                        input_retry_times = 50
+
+                        page_title = driver.title
+
+                        if '联合登录' == page_title:
+                            # wait for JD Login PWD input
+                            for _ in range(input_retry_times):
+                                # need JD login pwd
+                                cache_value_dict = {
+                                    'success': False,
+                                    'msg': 'NEED_SECURITY_CODE_PWD'
+                                }
+                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+
+                                if self.cache_dao.get(mobile_qr_running_cache_key):
+                                    user_input_security_code = self.cache_dao.get(mobile_security_input_cache_key)
+                                    if user_input_security_code:
+                                        pwd_input = driver.find_element_by_css_selector("input[id='password']")
+                                        pwd_input.send_keys(user_input_security_code)
+
+                                        login_btn = driver.find_element_by_css_selector("a[class='btn active']")
+                                        login_btn.click()
+
+                                        time.sleep(1)
+
+                                        error_diag = driver.find_elements_by_class_name("dialog-des")
+                                        if error_diag:
+                                            msg = error_diag[0].text
+                                            self.log_stream_error("获取移动端cookie失败:%s", msg)
+                                            cache_value_dict = {
+                                                'success': False,
+                                                'msg': msg
+                                            }
+                                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                            return False
+
+                                        page_title = driver.title
+                                        if '联合登录' == page_title:
+                                            cache_value_dict = {
+                                                'success': False,
+                                                'msg': 'SECURITY_CODE_INCORRECT'
+                                            }
+                                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                            self.cache_dao.delete(mobile_security_input_cache_key)
+                                        else:
+                                            break
+                                    else:
+                                        time.sleep(1)
+                        elif '认证方式' == page_title:
+                            # need mobile code
+                            cache_value_dict = {
+                                'success': False,
+                                'msg': 'NEED_SECURITY_CODE_MOBILE'
+                            }
+                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+
+                            mobile_code_btn = driver.find_element_by_css_selector("a[class='mode-btn voice-mode']")
+                            mobile_code_btn.click()
+
+                            time.sleep(1)
+
+                            error_diag = driver.find_elements_by_class_name("dialog-des")
+                            if error_diag:
+                                msg = error_diag[0].text
+                                self.log_stream_error("获取移动端cookie失败:%s", msg)
+                                cache_value_dict = {
+                                    'success': False,
+                                    'msg': msg
+                                }
+                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                return False
+                    
+                            try:
+                                mobile_code_send_btn = driver.find_element_by_css_selector("button[class='getMsg-btn timer active']")
+                                mobile_code_send_btn.click()
+                            except Exception as e:
+                                self.log_stream_error("获取移动端cookie失败:%s", '获取发送验证码按钮失败')
+                                cache_value_dict = {
+                                    'success': False,
+                                    'msg': '获取发送验证码按钮失败'
+                                }
+                                print(user_agent)
+                                print(driver.page_source)
+                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                return False
+
+                            # wait for mobile code input
+                            for _ in range(input_retry_times):
+                                if self.cache_dao.get(mobile_qr_running_cache_key):
+                                    user_input_security_code = self.cache_dao.get(mobile_security_input_cache_key)
+                                    if user_input_security_code:
+                                        mobile_code_input = driver.find_element_by_css_selector("input[type='tel']")
+                                        mobile_code_input.send_keys(user_input_security_code)
+
+                                        login_btn = driver.find_element_by_css_selector("a[class='btn active']")
+                                        login_btn.click()
+
+                                        time.sleep(1)
+
+                                        error_diag = driver.find_elements_by_class_name("dialog-des")
+                                        if error_diag:
+                                            msg = error_diag[0].text
+                                            self.log_stream_error("获取移动端cookie失败:%s", msg)
+                                            cache_value_dict = {
+                                                'success': False,
+                                                'msg': msg
+                                            }
+                                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                            return False
+
+                                        page_title = driver.title
+                                        if '认证方式' == page_title:
+                                            cache_value_dict = {
+                                                'success': False,
+                                                'msg': 'SECURITY_CODE_INCORRECT'
+                                            }
+                                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                            self.cache_dao.delete(mobile_security_input_cache_key)
+                                        else:
+                                            break
+                                    else:
+                                        time.sleep(1)
+                                else:
+                                    self.log_stream_info('手机短信验证码输入已取消')
+                                    return False
+                            else:
+                                self.log_stream_info('手机短信验证码输入已取消')
+                                return False
                     time.sleep(1)
                 else:
-                    self.log_stream_info('手机验证码输入已取消')
+                    self.log_stream_info('QQ扫码已取消')
                     return False
             else:
-                self.log_stream_info('手机验证码输入已取消')
+                self.log_stream_info('QQ扫码已取消')
                 return False
-
-            verify_code_input = driver.find_element_by_css_selector("input[id='authcode']")
-            verify_code_input.send_keys(user_input_mobile_code)
-
-            login_btn = driver.find_element_by_css_selector("a[report-eventid='MLoginRegister_SMSLogin']")
-            login_btn.click()
-
-            self.log_stream_info("正在登录")
-            time.sleep(3)
 
             driver.get('https://home.m.jd.com/myJd/newhome.action')
 
@@ -657,7 +787,6 @@ class JDSeckillService(object):
                 jd_user_data['mobile_cookie_ts_label'] =  datetime_to_str(get_now_datetime(), format_pattern=DATETIME_STR_PATTERN_SHORT)
                 jd_user_data['mobile_cookie_expire_ts'] =  get_timestamp_in_milli_sec(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000)) # 30 days
                 jd_user_data['mobile_cookie_expire_ts_label'] =  datetime_to_str(datetime_offset_in_milliesec(get_now_datetime(), 30 * 24 * 60 * 60 * 1000), format_pattern=DATETIME_STR_PATTERN_SHORT)
-                jd_user_data['mobile'] = mobile_num
 
                 jd_user_data = self.jd_user_service.save_or_update_jd_user(login_username, jd_user_data, is_return_model=False)
                 if 'jd_pwd' in jd_user_data and jd_user_data['jd_pwd']:
@@ -667,23 +796,24 @@ class JDSeckillService(object):
                     'success': True,
                     'jd_user_data': jd_user_data
                 }
-                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
             else:
                 self.log_stream_info("移动端登录失败")
                 cache_value_dict = {
                     'success': False,
-                    'msg': error_dict['SERVICE']['JD']['MOBILE_CODE_ERROR']['msg']
+                    'msg': error_dict['SERVICE']['JD']['MOBILE_QR_ERROR']['msg']
                 }
-                self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
         except Exception as e:
             self.log_stream_error(e)
             cache_value_dict = {
                 'success': False,
                 'msg': '系统错误'
             }
-            self.cache_dao.put(mobile_result_cache_key, cache_value_dict)
+            self.cache_dao.put(qq_qr_url_result_cache_key, cache_value_dict)
             raise RestfulException(error_dict['SERVICE']['JD']['MOBILE_LOGIN_FAILURE'])
         finally:
+            self.cache_dao.delete(mobile_qr_running_cache_key)
             if driver:
                 driver.quit()
 
@@ -2994,6 +3124,8 @@ class JDSeckillService(object):
     def prepare_on_init(self, target_time, sku_id, num):
         try:
             self.log_stream_info('==========================初始化抢购程序=================================')
+
+            self.check_individual_client_cookie()
             
             # 基本信息
             self.log_stream_info('运行在debug模式:%s', self.bool_map[str(self.is_debug_mode)])
@@ -3050,8 +3182,6 @@ class JDSeckillService(object):
             #  清空购物车
             self.log_stream_info('清空购物车')
             self.clear_cart()
-
-            self.check_individual_client_cookie()
 
             self.log_stream_info('重要：抢购结束前不要再添加任何商品到购物车, 目标商品会被自动添加')
 
