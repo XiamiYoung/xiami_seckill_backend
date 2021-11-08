@@ -48,6 +48,7 @@ urlpatterns = [
     path('site/jd/cancel-jd-order', jd_controller.cancel_jd_order),
     path('site/jd/get-jd-user-arrangement', jd_controller.get_jd_user_arrangement),
     path('site/jd/save-jd-user-arrangement', jd_controller.save_jd_user_arrangement),
+    path('site/jd/save-jd-user-mobile', jd_controller.save_jd_user_mobile),
     path('site/jd/save-jd-user-leading-time', jd_controller.save_jd_user_leading_time),
     path('site/jd/save-jd-user-pwd', jd_controller.save_jd_user_pwd),
     path('site/jd/save-jd-user-push-token', jd_controller.save_jd_user_push_token),

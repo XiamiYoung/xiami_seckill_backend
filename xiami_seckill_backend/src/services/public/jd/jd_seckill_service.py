@@ -23,7 +23,6 @@ from exception.restful_exception import RestfulException
 from utils.log import Logger
 from utils.emailer import Emailer
 from utils.timer import Timer
-from base64 import b64encode
 import logging
 from services.public.common.login_user_service import LoginUserService
 from services.public.jd.jd_order_service import JDOrderService
@@ -562,7 +561,8 @@ class JDSeckillService(object):
             chrome_options.add_experimental_option("mobileEmulation", mobile_emulation)
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_argument("--no-sandbox"); # Bypass OS security model
-            # chrome_options.add_argument('--headless')
+            if os.name != "nt":
+                chrome_options.add_argument('--headless')
             chrome_options.add_argument("--disable-extensions"); #disabling extensions
             chrome_options.add_argument("--disable-gpu"); #applicable to windows os only
             chrome_options.add_argument("--disable-dev-shm-usage"); #overcome limited resource problems
@@ -630,50 +630,64 @@ class JDSeckillService(object):
                         page_title = driver.title
 
                         if '联合登录' == page_title:
-                            # wait for JD Login PWD input
-                            for _ in range(input_retry_times):
-                                # need JD login pwd
-                                cache_value_dict = {
-                                    'success': False,
-                                    'msg': 'NEED_SECURITY_CODE_PWD'
-                                }
-                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                            try:
+                                span_bind_table = driver.find_element_by_css_selector("span[class='bind-lable']")
+                                if span_bind_table:
+                                    # need bind qq num
+                                    self.log_stream_error('QQ账号没有绑定京东，点击关联QQ按钮绑定京东账号')
+                                    cache_value_dict = {
+                                        'success': False,
+                                        'msg': 'QQ账号没有绑定京东，点击关联QQ按钮绑定京东账号'
+                                    }
+                                    self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                    self.cache_dao.delete(mobile_security_input_cache_key)
+                                    return False
+                            except Exception as e:
+                                # wait for JD Login PWD input
+                                for _ in range(input_retry_times):
+                                    # need JD login pwd
+                                    cache_value_dict = {
+                                        'success': False,
+                                        'msg': 'NEED_SECURITY_CODE_PWD'
+                                    }
+                                    self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
 
-                                if self.cache_dao.get(mobile_qr_running_cache_key):
-                                    user_input_security_code = self.cache_dao.get(mobile_security_input_cache_key)
-                                    if user_input_security_code:
-                                        pwd_input = driver.find_element_by_css_selector("input[id='password']")
-                                        pwd_input.send_keys(user_input_security_code)
+                                    if self.cache_dao.get(mobile_qr_running_cache_key):
+                                        user_input_security_code = self.cache_dao.get(mobile_security_input_cache_key)
+                                        if user_input_security_code:
+                                            pwd_input = driver.find_element_by_css_selector("input[id='password']")
+                                            pwd_input.send_keys(user_input_security_code)
 
-                                        login_btn = driver.find_element_by_css_selector("a[class='btn active']")
-                                        login_btn.click()
+                                            login_btn = driver.find_element_by_css_selector("a[class='btn active']")
+                                            login_btn.click()
 
-                                        time.sleep(1)
+                                            time.sleep(1)
 
-                                        error_diag = driver.find_elements_by_class_name("dialog-des")
-                                        if error_diag:
-                                            msg = error_diag[0].text
-                                            self.log_stream_error("获取移动端cookie失败:%s", msg)
-                                            cache_value_dict = {
-                                                'success': False,
-                                                'msg': msg
-                                            }
-                                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
-                                            return False
+                                            error_diag = driver.find_elements_by_class_name("dialog-des")
+                                            if error_diag:
+                                                msg = error_diag[0].text
+                                                self.log_stream_error("获取移动端cookie失败:%s", msg)
+                                                cache_value_dict = {
+                                                    'success': False,
+                                                    'msg': msg
+                                                }
+                                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                                return False
 
-                                        page_title = driver.title
-                                        if '联合登录' == page_title:
-                                            cache_value_dict = {
-                                                'success': False,
-                                                'msg': 'SECURITY_CODE_INCORRECT'
-                                            }
-                                            self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
-                                            self.cache_dao.delete(mobile_security_input_cache_key)
-                                        else:
-                                            break
+                                            page_title = driver.title
+                                            if '联合登录' == page_title:
+                                                cache_value_dict = {
+                                                    'success': False,
+                                                    'msg': 'SECURITY_CODE_INCORRECT'
+                                                }
+                                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                                                self.cache_dao.delete(mobile_security_input_cache_key)
+                                            else:
+                                                break
                                     else:
                                         time.sleep(1)
                         elif '认证方式' == page_title:
+
                             # need mobile code
                             cache_value_dict = {
                                 'success': False,
@@ -3292,6 +3306,7 @@ class JDSeckillService(object):
             if not order_id_list or len(order_id_list) == 0:
                 return False
             else:
+                order_id = order_id_list[0]
                 self.save_order(order_id)
 
             self.log_stream_info('=====================抢购结束[时间提前:%sms][Debug模式:%s]============================', self.order_leading_in_millis, self.bool_map[str(self.is_debug_mode)])

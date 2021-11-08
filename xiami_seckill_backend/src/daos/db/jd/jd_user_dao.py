@@ -26,6 +26,15 @@ class JDUserDao(object):
         finally:
             connection.close()
 
+    def update_jd_user_mobile(self, user_model, nick_name, mobile):
+        try:
+            jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)
+            jd_user_model = jd_user_qs.first()
+            jd_user_model.mobile = mobile
+            jd_user_model.save()
+        finally:
+            connection.close()
+
     def update_jd_user_leading_time(self, user_model, nick_name, user_options):
         try:
             jd_user_qs = JDUser.objects.filter(user=user_model, nick_name=nick_name)

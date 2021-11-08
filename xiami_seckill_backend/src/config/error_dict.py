@@ -148,7 +148,12 @@ error_dict = {
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "012",
                 'httpCode': HTTP_CODE_401,
                 'msg': 'QQ扫码失败, 点击关联QQ按钮重新关联'
-            }
+            },
+            'MOBILE_QQ_BINDING':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "012",
+                'httpCode': HTTP_CODE_401,
+                'msg': 'QQ账号没有绑定京东，点击关联QQ按钮绑定京东账号'
+            },
         }
     }
 }

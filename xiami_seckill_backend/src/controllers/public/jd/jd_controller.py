@@ -758,6 +758,28 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
+    def save_jd_user_mobile(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+        mobile = data['mobile']
+        login_username = self._get_login_username(request)
+
+        # get JD User service
+        jd_user_service = self._get_jd_user_service()  
+
+        self.execute_in_thread(jd_user_service.update_jd_user_mobile, (login_username, nick_name, mobile))
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+        return response
+
+    @csrf_exempt
     def save_jd_user_leading_time(self, request):
         # get data
         data = str_to_json(request.body)
