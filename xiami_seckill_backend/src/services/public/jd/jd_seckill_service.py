@@ -604,6 +604,8 @@ class JDSeckillService(object):
             qq_btn = driver.find_element_by_css_selector("a[report-eventid='MLoginRegister_SMSQQLogin']")
             qq_btn.click()
 
+            time.sleep(1)
+
             driver.switch_to.frame('ptlogin_iframe')
             qr_image = driver.find_element_by_css_selector("img[id='qrlogin_img']")
             encoded = qr_image.screenshot_as_base64
@@ -1768,8 +1770,8 @@ class JDSeckillService(object):
             'vendorRemarks': '[]',
             'submitOrderParam.sopNotPutInvoice': 'true',
             'submitOrderParam.trackID': self.track_id,
-            'submitOrderParam.ignorePriceChange': '0',
-            'submitOrderParam.btSupport': '0',
+            'submitOrderParam.ignorePriceChange': 0,
+            'submitOrderParam.btSupport': 0,
             'riskControl': self.risk_control,
             'submitOrderParam.isBestCoupon': 1,
             'submitOrderParam.jxj': 1,
@@ -3051,8 +3053,8 @@ class JDSeckillService(object):
             return False
 
         # 开始前leading_in_sec检查cookie
-        leading_in_sec = 20*60
-        sleep_interval = 10
+        leading_in_sec = 20 * random.randint(50, 70)
+        sleep_interval = 1
         title = '抢购前[{0}]分钟检查cookie'.format(leading_in_sec / 60)
         self.call_function_with_leading_time(title, sleep_interval, self.check_cookie_valid, target_time, leading_in_sec)
 
