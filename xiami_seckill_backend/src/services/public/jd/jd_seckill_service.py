@@ -68,7 +68,6 @@ from utils.util import (
     parse_sku_id,
     response_status,
     save_image,
-    get_timestamp_in_milli_sec,
     str_to_datetime,
     datetime_to_str,
     contains_reserve_product,
@@ -4014,6 +4013,8 @@ class JDSeckillService(object):
 
     def batch_load_seckill(self, is_force_refresh=False, is_ignore_limit=False):
         parsed_arrange_list = []
+        # get predict list
+        parsed_predict_list = self.get_sku_predict()
         try:
             should_read_from_cache_flag = True
             # check cache
@@ -4023,11 +4024,11 @@ class JDSeckillService(object):
                 seckill_jd_cache_value = self.cache_dao.get(SECKILL_INFO_CACHE_KEY)
                 should_read_from_cache_flag = self.should_read_from_cache(seckill_jd_cache_value)
             if should_read_from_cache_flag:
-                return seckill_jd_cache_value
+                return {
+                    'parsed_arrange_list': seckill_jd_cache_value['parsed_arrange_list'],
+                    'parsed_predict_list': parsed_predict_list
+                }
             else:
-                ## get predict list
-                parsed_predict_list = self.get_sku_predict()
-
                 # get seckill items
                 resp_json = self.batch_load_seckill_gid()
                 arrange_list = resp_json['groups']
@@ -4081,12 +4082,10 @@ class JDSeckillService(object):
                             seckill_item['rate'] = seckill_item['rate'].replace('折','')
                             parsed_resp_json_each_gid.append(seckill_item)
                     item['seckill_items'] = parsed_resp_json_each_gid
-
                 if not is_ignore_limit:
                     # put to cache
                     seckill_jd_cache_value = {
                         'parsed_arrange_list': parsed_arrange_list,
-                        'parsed_predict_list': parsed_predict_list,
                         'last_update_ts': datetime_to_str(get_now_datetime())
                     }
                     self.cache_dao.put(SECKILL_INFO_CACHE_KEY, seckill_jd_cache_value, DEFAULT_CACHE_SECKILL_INFO_TTL)
@@ -4145,9 +4144,37 @@ class JDSeckillService(object):
         ul_child = div_content.findChildren("ul" , recursive=False)[0]
         li_list = ul_child.findChildren("li" , recursive=False)
         for li in li_list:
+            item_info = {}
             product_onclick_url_splitted = li['onclick'].split('/')
             sku_id = product_onclick_url_splitted[len(product_onclick_url_splitted) - 1].split('.')[0]
-            item_info = self.get_item_detail_info(sku_id, is_wait_for_limit=True)
+            image_src = li.findChildren("img" , recursive=True)[0]['src']
+            sku_name = li.findChildren("h2" , recursive=True)[0].text.strip()
+            promo_price = li.findChildren("font" , recursive=True)[0].text
+            current_price = li.findChildren("h2" , recursive=True)[1].text.strip()
+            rate = li.findChildren("h2" , recursive=True)[2].text.strip()
+            seckill_start_time_str = li.findChildren("span" , recursive=True)[1].text.split('：')[1]
+            # parse time str, e.g 12月13日 14:00:00
+            current_dt = get_now_datetime()
+            current_year = current_dt.year
+            current_month = current_dt.month
+
+            remote_month = int(seckill_start_time_str.split('月')[0])
+            if remote_month < current_month:
+                # a new year
+                current_year = current_year + 1
+
+            seckill_start_time_str = str(current_year) + '-' + seckill_start_time_str.replace("月","-").replace("日","")
+            startTimeMills = get_timestamp_in_milli_sec(str_to_datetime(seckill_start_time_str, DATETIME_STR_PATTERN_SHORT))
+            
+            item_info['sku_id'] = sku_id
+            item_info['sku_name'] = sku_name
+            item_info['imageUrl'] = 'http:' + image_src
+            item_info['promo_price'] = promo_price
+            item_info['current_price'] = current_price
+            item_info['rate'] = rate
+            item_info['seckill_start_time_str'] = seckill_start_time_str
+            item_info['startTimeMills'] = startTimeMills
+
             ret_list.append(item_info)
                 
         return ret_list

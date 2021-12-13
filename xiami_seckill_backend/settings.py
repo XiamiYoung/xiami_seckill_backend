@@ -29,17 +29,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'localhost',
-    '39.105.128.70'
+    '182.92.81.71'
 ]
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080",
-    "http://39.105.128.70:1111"
+    "http://182.92.81.71:1111"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'localhost:8080',
-    "http://39.105.128.70:1111"
+    "http://182.92.81.71:1111"
 ]
 
 # Application definition
