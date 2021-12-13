@@ -3619,112 +3619,6 @@ class JDSeckillService(object):
                 self.log_stream_error('获取缓存秒杀信息失败, exception: %s', e)
                 return False
 
-    def batch_load_seckill(self, is_force_refresh=False, is_ignore_limit=False):
-        parsed_arrange_list = []
-        try:
-            should_read_from_cache_flag = True
-            # check cache
-            if is_force_refresh:
-                should_read_from_cache_flag = False
-            else:
-                seckill_jd_cache_value = self.cache_dao.get(SECKILL_INFO_CACHE_KEY)
-                should_read_from_cache_flag = self.should_read_from_cache(seckill_jd_cache_value)
-            if should_read_from_cache_flag:
-                return seckill_jd_cache_value['parsed_arrange_list']
-            else:
-                resp_json = self.batch_load_seckill_gid()
-                arrange_list = resp_json['groups']
-                now_dt = get_now_datetime()
-                now_dt_ts = get_timestamp_in_milli_sec(now_dt)
-
-                for item in arrange_list:
-                    if is_ignore_limit:
-                        parsed_arrange_list.append(item)
-                    else:
-                        if now_dt_ts < item['startTimeMills']:
-                            parsed_arrange_list.append(item)
-
-                for item in parsed_arrange_list:
-                    gid = item['gid']
-
-                    # 时间段解析
-                    resp_json_each_gid = self.batch_load_seckill_gid(gid)
-                    parsed_resp_json_each_gid = []
-                    for seckill_item in resp_json_each_gid['miaoShaList']:
-                        if not 'tagText' in seckill_item:
-                            seckill_item['tagText'] = 'b'
-                        else:
-                            seckill_item['tagText'] = 'a'
-
-                    # resp_json_each_gid['miaoShaList'] = sorted(resp_json_each_gid['miaoShaList'], key=lambda k: k['rate'])
-                    resp_json_each_gid['miaoShaList'] = sorted(sorted(resp_json_each_gid['miaoShaList'], key=lambda k: k['rate']), key=lambda k: k['tagText'])
-
-                    for seckill_item in resp_json_each_gid['miaoShaList']:
-                        if seckill_item['tagText'] == 'b':
-                            seckill_item['tagText'] = ''
-                        else:
-                            seckill_item['tagText'] = '超级秒杀'
-
-                    for index, seckill_item in enumerate(resp_json_each_gid['miaoShaList']):
-                        if not is_ignore_limit:
-                            if index < self.seckill_skus_limit:
-                                # if 'tagText' in seckill_item and seckill_item['tagText'] == '超级秒杀':
-                                seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
-                                seckill_item['rate'] = seckill_item['rate'].replace('折','')
-                                if 'wareId' in seckill_item:
-                                    item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True)
-                                    seckill_item['isReserveProduct'] = item_info['is_reserve_product']
-                                    seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
-                                    # seckill_item['list_price'] =  item_info['list_price']
-                                else:
-                                    self.log_stream_info(seckill_item)
-                                parsed_resp_json_each_gid.append(seckill_item)
-                        else:
-                            seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
-                            seckill_item['rate'] = seckill_item['rate'].replace('折','')
-                            parsed_resp_json_each_gid.append(seckill_item)
-                    item['seckill_items'] = parsed_resp_json_each_gid
-
-                if not is_ignore_limit:
-                    # put to cache
-                    seckill_jd_cache_value = {
-                        'parsed_arrange_list': parsed_arrange_list,
-                        'last_update_ts': datetime_to_str(get_now_datetime())
-                    }
-                    self.cache_dao.put(SECKILL_INFO_CACHE_KEY, seckill_jd_cache_value, DEFAULT_CACHE_SECKILL_INFO_TTL)
-        except Exception as e:
-            self.log_stream_error('获取秒杀信息失败')
-            self.system_emailer.send(subject='获取秒杀信息失败', content='获取秒杀信息失败')
-            raise RestfulException(error_dict['SERVICE']['JD']['GET_BATCH_SECKILL_FAILURE'])
-
-        return parsed_arrange_list
-
-    def batch_load_seckill_gid(self, gid=''):
-        url = 'https://api.m.jd.com/api'
-        payload = {
-            'callback': '',
-            '_': str(int(time.time() * 1000)),
-            'appid': 'o2_channels',
-            'functionId': 'pcMiaoShaAreaList',
-            'client': 'pc',
-            'clientVersion': '1.0.0',
-            'jsonp': '',
-            'body': '{}'
-        }
-
-        if gid:
-            payload['body'] = '{"gid":_gid}'.replace('_gid', str(gid))
-
-        headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://miaosha.jd.com/',
-        }
-        resp = self.sess.post(url=url, data=payload, headers=headers)
-        resp_json = parse_json(resp.text)
-        if not resp_json:
-            raise RestfulException(error_dict['COMMON']['SECKILL_BATCH_LOAD_FAILURE'])
-        return resp_json
-
     def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time):
         self.login_username = login_username
         self.nick_name = nick_name
@@ -4117,3 +4011,143 @@ class JDSeckillService(object):
         finally:
             if lock and lock.locked():
                 lock.release()
+
+    def batch_load_seckill(self, is_force_refresh=False, is_ignore_limit=False):
+        parsed_arrange_list = []
+        try:
+            should_read_from_cache_flag = True
+            # check cache
+            if is_force_refresh:
+                should_read_from_cache_flag = False
+            else:
+                seckill_jd_cache_value = self.cache_dao.get(SECKILL_INFO_CACHE_KEY)
+                should_read_from_cache_flag = self.should_read_from_cache(seckill_jd_cache_value)
+            if should_read_from_cache_flag:
+                return seckill_jd_cache_value
+            else:
+                ## get predict list
+                parsed_predict_list = self.get_sku_predict()
+
+                # get seckill items
+                resp_json = self.batch_load_seckill_gid()
+                arrange_list = resp_json['groups']
+                now_dt = get_now_datetime()
+                now_dt_ts = get_timestamp_in_milli_sec(now_dt)
+
+                for item in arrange_list:
+                    if is_ignore_limit:
+                        parsed_arrange_list.append(item)
+                    else:
+                        if now_dt_ts < item['startTimeMills']:
+                            parsed_arrange_list.append(item)
+
+                for item in parsed_arrange_list:
+                    gid = item['gid']
+
+                    # 时间段解析
+                    resp_json_each_gid = self.batch_load_seckill_gid(gid)
+                    parsed_resp_json_each_gid = []
+                    for seckill_item in resp_json_each_gid['miaoShaList']:
+                        if not 'tagText' in seckill_item:
+                            seckill_item['tagText'] = 'b'
+                        else:
+                            seckill_item['tagText'] = 'a'
+
+                    # resp_json_each_gid['miaoShaList'] = sorted(resp_json_each_gid['miaoShaList'], key=lambda k: k['rate'])
+                    resp_json_each_gid['miaoShaList'] = sorted(sorted(resp_json_each_gid['miaoShaList'], key=lambda k: k['rate']), key=lambda k: k['tagText'])
+
+                    for seckill_item in resp_json_each_gid['miaoShaList']:
+                        if seckill_item['tagText'] == 'b':
+                            seckill_item['tagText'] = ''
+                        else:
+                            seckill_item['tagText'] = '超级秒杀'
+
+                    for index, seckill_item in enumerate(resp_json_each_gid['miaoShaList']):
+                        if not is_ignore_limit:
+                            if index < self.seckill_skus_limit:
+                                # if 'tagText' in seckill_item and seckill_item['tagText'] == '超级秒杀':
+                                seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
+                                seckill_item['rate'] = seckill_item['rate'].replace('折','')
+                                if 'wareId' in seckill_item:
+                                    item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True)
+                                    seckill_item['isReserveProduct'] = item_info['is_reserve_product']
+                                    seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
+                                    # seckill_item['list_price'] =  item_info['list_price']
+                                else:
+                                    self.log_stream_info(seckill_item)
+                                parsed_resp_json_each_gid.append(seckill_item)
+                        else:
+                            seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
+                            seckill_item['rate'] = seckill_item['rate'].replace('折','')
+                            parsed_resp_json_each_gid.append(seckill_item)
+                    item['seckill_items'] = parsed_resp_json_each_gid
+
+                if not is_ignore_limit:
+                    # put to cache
+                    seckill_jd_cache_value = {
+                        'parsed_arrange_list': parsed_arrange_list,
+                        'parsed_predict_list': parsed_predict_list,
+                        'last_update_ts': datetime_to_str(get_now_datetime())
+                    }
+                    self.cache_dao.put(SECKILL_INFO_CACHE_KEY, seckill_jd_cache_value, DEFAULT_CACHE_SECKILL_INFO_TTL)
+        except Exception as e:
+            self.log_stream_error('获取秒杀信息失败')
+            self.system_emailer.send(subject='获取秒杀信息失败', content='获取秒杀信息失败')
+            raise RestfulException(error_dict['SERVICE']['JD']['GET_BATCH_SECKILL_FAILURE'])
+
+        if is_ignore_limit:
+            return parsed_arrange_list
+        else:
+            return {
+                'parsed_arrange_list': parsed_arrange_list,
+                'parsed_predict_list': parsed_predict_list
+            }
+
+    def batch_load_seckill_gid(self, gid=''):
+        url = 'https://api.m.jd.com/api'
+        payload = {
+            'callback': '',
+            '_': str(int(time.time() * 1000)),
+            'appid': 'o2_channels',
+            'functionId': 'pcMiaoShaAreaList',
+            'client': 'pc',
+            'clientVersion': '1.0.0',
+            'jsonp': '',
+            'body': '{}'
+        }
+
+        if gid:
+            payload['body'] = '{"gid":_gid}'.replace('_gid', str(gid))
+
+        headers = {
+            'User-Agent': self.user_agent,
+            'Referer': 'https://miaosha.jd.com/',
+        }
+        resp = self.sess.post(url=url, data=payload, headers=headers)
+        resp_json = parse_json(resp.text)
+        if not resp_json:
+            raise RestfulException(error_dict['COMMON']['SECKILL_BATCH_LOAD_FAILURE'])
+        return resp_json
+
+    def get_sku_predict(self):
+        """获取用户信息
+        :return: 用户名
+        """
+        url = 'http://www.yunshenjia.com/xianbao/index?keyword=&cat=0&discount=2&sort=1'
+        headers = {
+            'User-Agent': self.user_agent
+        }
+        resp = self.sess.get(url=url, headers=headers)
+
+        ret_list = []
+        soup = BeautifulSoup(resp.text, "html.parser")
+        div_content = soup.find('div', {'class': 'content'})
+        ul_child = div_content.findChildren("ul" , recursive=False)[0]
+        li_list = ul_child.findChildren("li" , recursive=False)
+        for li in li_list:
+            product_onclick_url_splitted = li['onclick'].split('/')
+            sku_id = product_onclick_url_splitted[len(product_onclick_url_splitted) - 1].split('.')[0]
+            item_info = self.get_item_detail_info(sku_id, is_wait_for_limit=True)
+            ret_list.append(item_info)
+                
+        return ret_list
