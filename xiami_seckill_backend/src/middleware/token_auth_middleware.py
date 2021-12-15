@@ -4,6 +4,7 @@ from data.out.base_res_body import BaseResBody
 from config.error_dict import error_dict
 from utils.token_util import (
     get_user_name_from_token,
+    get_user_level_from_token,
     validate_token,
     refresh_token
 )
@@ -13,7 +14,8 @@ from config.constants import (
     JWT_HEADER_USER_NAME,
     JWT_HEADER_TOKEN_HEADER_NAME,
     JWT_AUTHZ_TYPE,
-    HTTP_CODE_401
+    HTTP_CODE_401,
+    USER_LEVEL_ADMIN
 )
 
 
@@ -34,6 +36,19 @@ class TokenAuthMiddleware(object):
                     token_username = get_user_name_from_token(auth_token)
                     if token_username:
                         validate_token(auth_token, logged_in_user_header)
+
+                        # check admin access
+                        if path.startswith('/site-admin/reboot-server'):
+                            user_level = get_user_level_from_token(auth_token)
+                            if USER_LEVEL_ADMIN!=user_level:
+                                error_entry = error_dict['USER']['PERMISSION_DENY']
+                                is_keep_body = False
+                                res_body = BaseResBody(reason_code=error_entry['reasonCode'], msg=error_entry['msg']).to_str(is_keep_body)
+                                response = HttpResponse(res_body, content_type = "application/json; charset=utf-8")
+                                response.status_code = HTTP_CODE_401
+                                response['Content-Length'] = len(res_body.encode('utf-8'))
+                                return response
+                            
                         refreshed_token = refresh_token(auth_token)
                         response = self.get_response(request)
                         response[JWT_HEADER_TOKEN_HEADER_NAME] = refreshed_token

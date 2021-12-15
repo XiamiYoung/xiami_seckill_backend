@@ -78,6 +78,11 @@ error_dict = {
                 'reasonCode': PREFIX_REST + ERROR_TYPE_USER + "006",
                 'httpCode': HTTP_CODE_401,
                 'msg': '发现重复用户名.'
+            },
+            'PERMISSION_DENY':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_USER + "007",
+                'httpCode': HTTP_CODE_401,
+                'msg': '用户无权限.'
             }
     },
     'ADMIN':{

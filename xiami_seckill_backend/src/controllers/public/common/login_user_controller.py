@@ -7,6 +7,7 @@ from config.error_dict import error_dict
 from exception.restful_exception import RestfulException
 from config.constants import (
     JWT_HEADER_USER_NAME,
+    JWT_HEADER_USER_LEVEL,
     JWT_HEADER_TOKEN_HEADER_NAME,
 )
 
@@ -34,10 +35,12 @@ def login_with_username_password(request):
 
     # generate token
     username = user_data['username']
-    auth_token = generate_token(username)
+    user_level = user_data['level']
+    auth_token = generate_token(username, user_level)
 
     json_response = JsonResponse(resp_body)
     json_response[JWT_HEADER_TOKEN_HEADER_NAME] = auth_token
     json_response[JWT_HEADER_USER_NAME] = username
+    json_response[JWT_HEADER_USER_LEVEL] = user_level
     
     return json_response

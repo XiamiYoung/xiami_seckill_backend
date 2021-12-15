@@ -13,11 +13,44 @@ def create_enduser(request):
     data = json.loads(request.body)
 
     # call service
-    user_data = site_admin_service.create_enduser(data)
+    ret_data = site_admin_service.create_enduser(data)
 
     # resp
     resp_body = BaseResBody().to_json_body()
-    resp_body['body'] = user_data
+    resp_body['body'] = ret_data
+    return JsonResponse(resp_body)
+
+@csrf_exempt
+def get_sys_info(request):
+
+    # call service
+    ret_data = site_admin_service.get_sys_info()
+
+    # resp
+    resp_body = BaseResBody().to_json_body()
+    resp_body['body'] = ret_data
+    return JsonResponse(resp_body)
+
+@csrf_exempt
+def check_sys_status(request):
+
+    # call service
+    ret_data = site_admin_service.check_sys_status()
+
+    # resp
+    resp_body = BaseResBody().to_json_body()
+    resp_body['body'] = ret_data
+    return JsonResponse(resp_body)
+    
+@csrf_exempt
+def reboot_server(request):
+
+    # call service
+    ret_data = site_admin_service.reboot_server()
+
+    # resp
+    resp_body = BaseResBody().to_json_body()
+    resp_body['body'] = ret_data
     return JsonResponse(resp_body)
 
 

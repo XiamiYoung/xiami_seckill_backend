@@ -12,3 +12,4 @@ python-redis-lock==3.7.0
 pypiwin32
 selenium
 pymysql
+psutil

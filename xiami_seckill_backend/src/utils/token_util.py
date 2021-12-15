@@ -19,13 +19,14 @@ def encrypt_json(json_obj, secret):
 def decrypt_token(token, secret):
     return jwt.decode(token, secret, algorithms=["HS256"])
 
-def generate_token(username):
+def generate_token(username, user_level):
     now_dt = get_now_datetime()
     now_dt_ts = get_timestamp_in_milli_sec(now_dt)
     idle_exp = get_timestamp_in_milli_sec(datetime_offset_in_milliesec(now_dt, jwt_idle_expiration * 1000))
     hard_exp = get_timestamp_in_milli_sec(datetime_offset_in_milliesec(now_dt, jwt_hard_expiration * 1000))
     token_claims = {
         'sub': username,
+        'level': user_level,
         'iat': now_dt_ts,
         'hard_exp': hard_exp,
         'idle_exp': idle_exp
@@ -42,6 +43,10 @@ def get_claims_from_token(token):
 def get_user_name_from_token(token):
     claims = get_claims_from_token(token)
     return claims['sub']
+
+def get_user_level_from_token(token):
+    claims = get_claims_from_token(token)
+    return claims['level']
 
 def is_token_expired(token):
     claims = get_claims_from_token(token)

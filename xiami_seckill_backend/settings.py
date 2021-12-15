@@ -98,6 +98,7 @@ CORS_ALLOW_HEADERS = [
 CORS_EXPOSE_HEADERS = [
     'Auth-Token',
     'Logged-In-User',
+    'Logged-In-User-Level',
     'cookie-token',
     'jd-pc-cookies',
     'jd-mobile-cookies'

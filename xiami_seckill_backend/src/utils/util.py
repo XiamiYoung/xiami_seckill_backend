@@ -10,6 +10,7 @@ import time
 import random
 import math
 import time
+import psutil
 from functools import wraps
 from itertools import chain
 from datetime import datetime
@@ -360,3 +361,34 @@ def model_to_dict(instance):
     for f in opts.many_to_many:
         data[f.name] = [i.id for i in f.value_from_object(instance)]
     return data
+
+def get_sys_info():
+    cpu_percent = psutil.cpu_percent()
+    used_memory_percent = psutil.virtual_memory().percent
+    network_outbound_before = psutil.net_io_counters().bytes_sent
+    network_inbound_before = psutil.net_io_counters().bytes_recv
+    time.sleep(1)
+    network_outbound_after = psutil.net_io_counters().bytes_sent
+    network_inbound_after = psutil.net_io_counters().bytes_recv
+    sys_info = {
+        'cpu_percent': cpu_percent,
+        'used_memory_percent': used_memory_percent,
+        'network_outbound': (network_outbound_after - network_outbound_before)/1024./1024.,
+        'network_inbound': (network_inbound_after - network_inbound_before)/1024./1024.
+    }
+    return sys_info
+
+def convert_size(size_bytes):
+   if size_bytes == 0:
+       return "0B"
+   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   i = int(math.floor(math.log(size_bytes, 1024)))
+   p = math.pow(1024, i)
+   s = round(size_bytes / p, 2)
+   return "%s %s" % (s, size_name[i])
+
+def reboot_server():
+    os.system('reboot')
+
+def get_server_uptime():
+    return round((time.time() - psutil.boot_time())/60/60, 2)

@@ -11,3 +11,4 @@ django-redis
 python-redis-lock==3.7.0
 selenium
 pymysql
+psutil
