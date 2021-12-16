@@ -16,18 +16,21 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from .src.controllers.public.jd.jd_controller import JDController
-from .src.controllers.public.common import login_user_controller
-from .src.controllers.site_admin import site_admin_controller
+from .src.controllers.public.common.login_user_controller import LoginUserController
+from .src.controllers.site_admin.site_admin_controller import SiteAdminController
 
+login_user_controller = LoginUserController()
 jd_controller = JDController()
+site_admin_controller = SiteAdminController()
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('site/login', login_user_controller.login_with_username_password),
     path('site-admin/user/create', site_admin_controller.create_enduser),
-    path('site-admin/sys-info', site_admin_controller.get_sys_info),
-    path('site-admin/check-sys-status', site_admin_controller.check_sys_status),
+    path('site-admin/get-sys-info', site_admin_controller.get_sys_info),
+    path('site-admin/trigger-sys-info', site_admin_controller.trigger_sys_info),
     path('site-admin/reboot-server', site_admin_controller.reboot_server),
+    path('site-admin/find-all-users', site_admin_controller.find_all_users),
     path('site/jd/batch-load-seckill', jd_controller.batch_load_seckill),
     path('site/jd/load-qr-code', jd_controller.check_qr_code),
     path('site/jd/wait-user-scan-qr', jd_controller.wait_user_scan_qr),

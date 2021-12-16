@@ -2,6 +2,13 @@ from models.common.login_user_model import User
 from django.db import connection
 
 class LoginUserDao(object):
+
+    def find_all(self):
+        try:
+            user_data_qs = User.objects
+            return user_data_qs
+        finally:
+            connection.close()
     
     def create_enduser(self, username, password, level=1):
         try:

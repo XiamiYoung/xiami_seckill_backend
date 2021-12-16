@@ -1,5 +1,6 @@
 from django.http import JsonResponse
 import json
+from controllers.base.base_controller import BaseController
 from data.out.base_res_body import BaseResBody
 from django.views.decorators.csrf import csrf_exempt
 from services.public.common.login_user_service import LoginUserService
@@ -17,30 +18,32 @@ from utils.token_util import (
 
 login_user_service = LoginUserService()
 
-@csrf_exempt
-def login_with_username_password(request):
+class LoginUserController(BaseController):
 
-    # read data as json
-    data = json.loads(request.body)
+    @csrf_exempt
+    def login_with_username_password(self, request):
 
-    # call service
-    user_data = login_user_service.login_with_username_password(data)
+        # read data as json
+        data = json.loads(request.body)
 
-    if not user_data:
-        raise RestfulException(error_dict['USER']['REQUEST_INVALID'])
+        # call service
+        user_data = login_user_service.login_with_username_password(data)
 
-    # resp
-    resp_body = BaseResBody().to_json_body()
-    resp_body['body'] = user_data
+        if not user_data:
+            raise RestfulException(error_dict['USER']['REQUEST_INVALID'])
 
-    # generate token
-    username = user_data['username']
-    user_level = user_data['level']
-    auth_token = generate_token(username, user_level)
+        # resp
+        resp_body = BaseResBody().to_json_body()
+        resp_body['body'] = user_data
 
-    json_response = JsonResponse(resp_body)
-    json_response[JWT_HEADER_TOKEN_HEADER_NAME] = auth_token
-    json_response[JWT_HEADER_USER_NAME] = username
-    json_response[JWT_HEADER_USER_LEVEL] = user_level
-    
-    return json_response
+        # generate token
+        username = user_data['username']
+        user_level = user_data['level']
+        auth_token = generate_token(username, user_level)
+
+        json_response = JsonResponse(resp_body)
+        json_response[JWT_HEADER_TOKEN_HEADER_NAME] = auth_token
+        json_response[JWT_HEADER_USER_NAME] = username
+        json_response[JWT_HEADER_USER_LEVEL] = user_level
+        
+        return json_response

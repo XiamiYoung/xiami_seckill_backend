@@ -55,6 +55,7 @@ DEFAULT_CACHE_MOBILE_CODE = 200
 
 # cache key
 SECKILL_INFO_CACHE_KEY = 'seckill_info_cache_key'
+SYS_INFO_CACHE_KEY = 'sys_info_cache_key'
 
 # lock key
 LOCK_KEY_SECKILL_ARRANGEMENT = 'user_arrangement_lock_key'

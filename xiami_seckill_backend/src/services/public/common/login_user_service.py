@@ -38,4 +38,13 @@ class LoginUserService(object):
             return user_qs.first()
         else:
             return user_qs.first().to_dict(exclude=['password'])
+
+    def find_all_users(self):
+        login_user_qs = self.login_user_dao.find_all()
+        login_user_list = list(login_user_qs.all().values())
+        for login_user in login_user_list:
+            if login_user['password']:
+                del login_user['password']
+
+        return login_user_list
     

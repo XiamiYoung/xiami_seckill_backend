@@ -2,55 +2,79 @@ from django.http import JsonResponse
 from data.out.base_res_body import BaseResBody
 import json
 from django.views.decorators.csrf import csrf_exempt
+from controllers.base.base_controller import BaseController
 from services.site_admin.site_admin_service import SiteAdminService
+
+from utils.util import (
+    str_to_json
+)
 
 site_admin_service = SiteAdminService()
 
-@csrf_exempt
-def create_enduser(request):
+class SiteAdminController(BaseController):
 
-    # read data as json
-    data = json.loads(request.body)
+    @csrf_exempt
+    def create_enduser(self, request):
 
-    # call service
-    ret_data = site_admin_service.create_enduser(data)
+        # read data as json
+        data = json.loads(request.body)
 
-    # resp
-    resp_body = BaseResBody().to_json_body()
-    resp_body['body'] = ret_data
-    return JsonResponse(resp_body)
+        # call service
+        ret_data = site_admin_service.create_enduser(data)
 
-@csrf_exempt
-def get_sys_info(request):
+        # resp
+        resp_body = BaseResBody().to_json_body()
+        resp_body['body'] = ret_data
+        return JsonResponse(resp_body)
 
-    # call service
-    ret_data = site_admin_service.get_sys_info()
+    @csrf_exempt
+    def get_sys_info(self, request):
 
-    # resp
-    resp_body = BaseResBody().to_json_body()
-    resp_body['body'] = ret_data
-    return JsonResponse(resp_body)
+        # call service
+        ret_data = site_admin_service.check_sys_info_result()
 
-@csrf_exempt
-def check_sys_status(request):
+        # resp
+        resp_body = BaseResBody().to_json_body()
+        resp_body['body'] = ret_data
+        return JsonResponse(resp_body)
 
-    # call service
-    ret_data = site_admin_service.check_sys_status()
+    @csrf_exempt
+    def trigger_sys_info(self, request):
 
-    # resp
-    resp_body = BaseResBody().to_json_body()
-    resp_body['body'] = ret_data
-    return JsonResponse(resp_body)
-    
-@csrf_exempt
-def reboot_server(request):
+        # call service in thread
+        self.execute_in_thread(site_admin_service.trigger_sys_info, ())
 
-    # call service
-    ret_data = site_admin_service.reboot_server()
+        # resp
+        resp_body_data = {
+                            'executed':True
+                        }
+        resp_body = BaseResBody().to_json_body()
+        resp_body['body'] = resp_body_data
+        return JsonResponse(resp_body)
 
-    # resp
-    resp_body = BaseResBody().to_json_body()
-    resp_body['body'] = ret_data
-    return JsonResponse(resp_body)
+    @csrf_exempt
+    def reboot_server(self, request):
 
+        # call service
+        ret_data = site_admin_service.reboot_server()
 
+        # resp
+        resp_body = BaseResBody().to_json_body()
+        resp_body['body'] = ret_data
+        return JsonResponse(resp_body)
+
+    @csrf_exempt
+    def find_all_users(self, request):
+        # read data as json
+        data = str_to_json(request.body)
+        username = ''
+        if 'username' in data:
+            username = data['username']
+
+        # call service
+        ret_data = site_admin_service.find_all_users(username=username, with_order=True)
+
+        # resp
+        resp_body = BaseResBody().to_json_body()
+        resp_body['body'] = ret_data
+        return JsonResponse(resp_body)

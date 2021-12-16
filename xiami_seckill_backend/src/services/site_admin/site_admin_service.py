@@ -3,6 +3,9 @@
 from daos.db.common.login_user_dao import LoginUserDao
 from config.error_dict import error_dict
 from exception.restful_exception import RestfulException
+from daos.cache.redis import CacheDao
+from services.public.common.login_user_service import LoginUserService
+from services.public.jd.jd_order_service import JDOrderService
 
 from utils.util import (
     get_sys_info,
@@ -10,9 +13,17 @@ from utils.util import (
     reboot_server
 )
 
+from config.constants import (
+    SYS_INFO_CACHE_KEY
+)
+
+jd_order_service = JDOrderService()
+login_user_service = LoginUserService()
+
 class SiteAdminService(object):
     def __init__(self):
         self.login_user_dao = LoginUserDao()
+        self.cache_dao = CacheDao()
 
     def create_enduser(self, data):
         username = data.get('userName')
@@ -25,11 +36,31 @@ class SiteAdminService(object):
         user_model = self.login_user_dao.create_enduser(username=username,password=password)
         return user_model.to_dict(exclude=['password'])
 
-    def get_sys_info(self):
-        return get_sys_info()
+    def check_sys_info_result(self):
+        return self.cache_dao.get(SYS_INFO_CACHE_KEY)
+
+    def trigger_sys_info(self):
+        sys_info = get_sys_info()
+        up_time = get_server_uptime()
+        cache_obj = {
+            'sys_info': sys_info,
+            'up_time': up_time
+        }
+        self.cache_dao.put(SYS_INFO_CACHE_KEY, cache_obj)
 
     def reboot_server(self):
         return reboot_server()
 
-    def check_sys_status(self):
-        return get_server_uptime()
+    def find_all_users(self, username=None, with_order=False):
+        if not username:
+            login_user_list = login_user_service.find_all_users()
+        else:
+            login_user_list = []
+            login_user = login_user_service.find_user_by_username(username)
+            login_user_list.append(login_user)
+        if with_order:
+            for login_user in login_user_list:
+                order_list = jd_order_service.find_jd_orders_by_username(login_user['username'])
+                login_user['order_list'] = order_list
+
+        return login_user_list
