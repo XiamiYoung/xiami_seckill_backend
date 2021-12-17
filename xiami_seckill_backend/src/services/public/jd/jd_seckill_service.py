@@ -3140,6 +3140,10 @@ class JDSeckillService(object):
         try:
             self.log_stream_info('==========================初始化抢购程序=================================')
 
+            # 等待随机秒，避免cookie错误
+            random_wait = random.randint(0, 10)
+            self.log_stream_info('等待%s秒检查用户cookie', random_wait)
+            time.sleep(random_wait)
             self.check_individual_client_cookie()
             
             # 基本信息
@@ -3618,7 +3622,7 @@ class JDSeckillService(object):
                 self.log_stream_error('获取缓存秒杀信息失败, exception: %s', e)
                 return False
 
-    def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time):
+    def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time, force_run=False):
         self.login_username = login_username
         self.nick_name = nick_name
 
@@ -3629,11 +3633,12 @@ class JDSeckillService(object):
         self.stream_enabled = True
 
         # 检查是否已有计划运行中
-        if(self.jd_user_has_running_task(login_username, nick_name)):
-            self.log_stream_info('=========================================================================')
-            self.log_stream_info('用户%s已有运行计划，忽略此次运行', self.nick_name)
-            self.log_stream_info('=========================================================================')
-            return
+        if not force_run:
+            if(self.jd_user_has_running_task(login_username, nick_name)):
+                self.log_stream_info('=========================================================================')
+                self.log_stream_info('用户%s已有运行计划，忽略此次运行', self.nick_name)
+                self.log_stream_info('=========================================================================')
+                return
 
         # 添加运行flag
         self.execution_cache_key = login_username + '_' + nick_name + '_arrangement_running'

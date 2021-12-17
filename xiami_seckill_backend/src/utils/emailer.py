@@ -27,7 +27,8 @@ class Emailer:
         t = threading.Thread(target=self.send_in_thread, args=(subject, content))
         t.daemon = True
         t.start()
-        self.service_ins.log_stream_info('邮件请求已发出:%s', self.sender)
+        if self.service_ins:
+            self.service_ins.log_stream_info('邮件请求已发出:%s', self.sender)
 
     def send_in_thread(self, subject, content):
         message = MIMEText(content, 'html', 'utf-8')
@@ -41,10 +42,12 @@ class Emailer:
             smtpObj = smtplib.SMTP_SSL(self.mail_host, self.mail_port) 
             smtpObj.login(self.sender, self.mail_pass)
             smtpObj.sendmail(self.sender, self.receivers, message.as_string())
-            self.service_ins.log_stream_info('成功发送邮件:%s', self.sender)
+            if self.service_ins:
+                self.service_ins.log_stream_info('成功发送邮件:%s', self.sender)
         except Exception as e:
             traceback.print_exc()
-            self.service_ins.log_stream_error('发送邮件失败:%s', self.sender)
+            if self.service_ins:
+                self.service_ins.log_stream_error('发送邮件失败:%s', self.sender)
         finally:
             if smtpObj:
                 smtpObj.quit()
