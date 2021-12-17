@@ -46,7 +46,6 @@ class XiamiSeckillAppConfig(AppConfig):
         try:
             login_user_service = LoginUserService()
             jd_user_service = JDUserService()
-            jd_seckill_service = JDSeckillService()
 
             login_user_list = login_user_service.find_all_users()
 
@@ -131,6 +130,7 @@ class XiamiSeckillAppConfig(AppConfig):
                             execution_arrangement_array.append(execution_arrangement_item)
 
                         if should_run_for_user:
+                            jd_seckill_service = JDSeckillService()
                             jd_user = jd_user_service.find_jd_user_by_username_and_nick_name(login_username, jd_username, is_mask_jd_pwd=False)
                             if jd_user['pc_cookie_str']:
                                 jd_seckill_service._assign_cookies_from_remote(jd_user['pc_cookie_str'])
