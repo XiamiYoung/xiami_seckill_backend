@@ -39,15 +39,6 @@ class SiteAdminService(object):
     def check_sys_info_result(self):
         return self.cache_dao.get(SYS_INFO_CACHE_KEY)
 
-    def trigger_sys_info(self):
-        sys_info = get_sys_info()
-        up_time = get_server_uptime()
-        cache_obj = {
-            'sys_info': sys_info,
-            'up_time': up_time
-        }
-        self.cache_dao.put(SYS_INFO_CACHE_KEY, cache_obj)
-
     def reboot_server(self):
         return reboot_server()
 

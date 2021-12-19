@@ -28,7 +28,6 @@ urlpatterns = [
     path('site/login', login_user_controller.login_with_username_password),
     path('site-admin/user/create', site_admin_controller.create_enduser),
     path('site-admin/get-sys-info', site_admin_controller.get_sys_info),
-    path('site-admin/trigger-sys-info', site_admin_controller.trigger_sys_info),
     path('site-admin/reboot-server', site_admin_controller.reboot_server),
     path('site-admin/find-all-users', site_admin_controller.find_all_users),
     path('site/jd/batch-load-seckill', jd_controller.batch_load_seckill),

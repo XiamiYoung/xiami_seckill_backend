@@ -39,20 +39,6 @@ class SiteAdminController(BaseController):
         return JsonResponse(resp_body)
 
     @csrf_exempt
-    def trigger_sys_info(self, request):
-
-        # call service in thread
-        self.execute_in_thread(site_admin_service.trigger_sys_info, ())
-
-        # resp
-        resp_body_data = {
-                            'executed':True
-                        }
-        resp_body = BaseResBody().to_json_body()
-        resp_body['body'] = resp_body_data
-        return JsonResponse(resp_body)
-
-    @csrf_exempt
     def reboot_server(self, request):
 
         # call service
