@@ -4134,52 +4134,55 @@ class JDSeckillService(object):
         return resp_json
 
     def get_sku_predict(self):
-        """获取用户信息
-        :return: 用户名
-        """
-        url = 'http://www.yunshenjia.com/xianbao/index?keyword=&cat=0&discount=2&sort=1'
-        headers = {
-            'User-Agent': self.user_agent
-        }
-        resp = self.sess.get(url=url, headers=headers)
+        try:
+            """获取用户信息
+            :return: 用户名
+            """
+            url = 'http://www.yunshenjia.com/xianbao/index?keyword=&cat=0&discount=2&sort=1'
+            headers = {
+                'User-Agent': self.user_agent
+            }
+            resp = self.sess.get(url=url, headers=headers)
 
-        ret_list = []
-        soup = BeautifulSoup(resp.text, "html.parser")
-        div_content = soup.find('div', {'class': 'content'})
-        ul_child = div_content.findChildren("ul" , recursive=False)[0]
-        li_list = ul_child.findChildren("li" , recursive=False)
-        for li in li_list:
-            item_info = {}
-            product_onclick_url_splitted = li['onclick'].split('/')
-            sku_id = product_onclick_url_splitted[len(product_onclick_url_splitted) - 1].split('.')[0]
-            image_src = li.findChildren("img" , recursive=True)[0]['src']
-            sku_name = li.findChildren("h2" , recursive=True)[0].text.strip()
-            promo_price = li.findChildren("font" , recursive=True)[0].text
-            current_price = li.findChildren("h2" , recursive=True)[1].text.strip()
-            rate = li.findChildren("h2" , recursive=True)[2].text.strip()
-            seckill_start_time_str = li.findChildren("span" , recursive=True)[1].text.split('：')[1]
-            # parse time str, e.g 12月13日 14:00:00
-            current_dt = get_now_datetime()
-            current_year = current_dt.year
-            current_month = current_dt.month
+            ret_list = []
+            soup = BeautifulSoup(resp.text, "html.parser")
+            div_content = soup.find('div', {'class': 'content'})
+            ul_child = div_content.findChildren("ul" , recursive=False)[0]
+            li_list = ul_child.findChildren("li" , recursive=False)
+            for li in li_list:
+                item_info = {}
+                product_onclick_url_splitted = li['onclick'].split('/')
+                sku_id = product_onclick_url_splitted[len(product_onclick_url_splitted) - 1].split('.')[0]
+                image_src = li.findChildren("img" , recursive=True)[0]['src']
+                sku_name = li.findChildren("h2" , recursive=True)[0].text.strip()
+                promo_price = li.findChildren("font" , recursive=True)[0].text
+                current_price = li.findChildren("h2" , recursive=True)[1].text.strip()
+                rate = li.findChildren("h2" , recursive=True)[2].text.strip()
+                seckill_start_time_str = li.findChildren("span" , recursive=True)[1].text.split('：')[1]
+                # parse time str, e.g 12月13日 14:00:00
+                current_dt = get_now_datetime()
+                current_year = current_dt.year
+                current_month = current_dt.month
 
-            remote_month = int(seckill_start_time_str.split('月')[0])
-            if remote_month < current_month:
-                # a new year
-                current_year = current_year + 1
+                remote_month = int(seckill_start_time_str.split('月')[0])
+                if remote_month < current_month:
+                    # a new year
+                    current_year = current_year + 1
 
-            seckill_start_time_str = str(current_year) + '-' + seckill_start_time_str.replace("月","-").replace("日","")
-            startTimeMills = get_timestamp_in_milli_sec(str_to_datetime(seckill_start_time_str, DATETIME_STR_PATTERN_SHORT))
-            
-            item_info['sku_id'] = sku_id
-            item_info['sku_name'] = sku_name
-            item_info['imageUrl'] = 'http:' + image_src
-            item_info['promo_price'] = promo_price
-            item_info['current_price'] = current_price
-            item_info['rate'] = rate
-            item_info['seckill_start_time_str'] = seckill_start_time_str
-            item_info['startTimeMills'] = startTimeMills
-
-            ret_list.append(item_info)
+                seckill_start_time_str = str(current_year) + '-' + seckill_start_time_str.replace("月","-").replace("日","")
+                startTimeMills = get_timestamp_in_milli_sec(str_to_datetime(seckill_start_time_str, DATETIME_STR_PATTERN_SHORT))
                 
+                item_info['sku_id'] = sku_id
+                item_info['sku_name'] = sku_name
+                item_info['imageUrl'] = 'http:' + image_src
+                item_info['promo_price'] = promo_price
+                item_info['current_price'] = current_price
+                item_info['rate'] = rate
+                item_info['seckill_start_time_str'] = seckill_start_time_str
+                item_info['startTimeMills'] = startTimeMills
+
+                ret_list.append(item_info)
+        except Exception as e:
+            self.log_stream_error('秒杀线报获取失败')
+
         return ret_list
