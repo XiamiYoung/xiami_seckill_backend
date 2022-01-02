@@ -1067,6 +1067,7 @@ class JDSeckillService(object):
         url = 'https://cart.jd.com/gate.action'
         headers = {
             'User-Agent': self.user_agent,
+            'referer': 'https://item.jd.com/'
         }
 
         payload = {
@@ -1074,12 +1075,18 @@ class JDSeckillService(object):
             'pcount': num,
             'ptype': 1,
         }
+
+        result = False
+
         resp = self.sess.get(url=url, params=payload, headers=headers)
         if 'https://cart.jd.com/cart.action' in resp.url:  # 套装商品加入购物车后直接跳转到购物车页面
             result = True
         else:  # 普通商品成功加入购物车后会跳转到提示 "商品已成功加入购物车！" 页面
             soup = BeautifulSoup(resp.text, "html.parser")
-            result = bool(soup.select('h3.ftx-02'))  # [<h3 class="ftx-02">商品已成功加入购物车！</h3>]
+            if '京东购物车-加购成功页' == soup.title.string:
+                result = True
+            else:
+                result = bool(soup.select('h3.ftx-02'))  # [<h3 class="ftx-02">商品已成功加入购物车！</h3>]
 
         if result:
             self.log_stream_info('%s x %s 已成功加入购物车', sku_id, num)
@@ -2283,14 +2290,19 @@ class JDSeckillService(object):
         imageUrl = 'https://img13.360buyimg.com/n1/' + resp_json[sku_id]['imagePath']
         return sku_name, imageUrl
 
-    def get_item_detail_info(self, sku_id, is_wait_for_limit=True):
+    def get_item_detail_info(self, sku_id, is_wait_for_limit=True, is_check_stock=True):
         """获取详细信息
         :param sku_id: 商品id
         :return:
         """
         sku_name, imageUrl = self.get_item_info(sku_id)
 
-        url = 'https://item-soa.jd.com/getWareBusiness?skuId={}&area={}'.format(sku_id, self.area_id)
+        url = ''
+
+        if is_check_stock:
+            url = 'https://item-soa.jd.com/getWareBusiness?skuId={}&area={}'.format(sku_id, self.area_id)
+        else:
+            url = 'https://item-soa.jd.com/getWareBusiness?skuId={}'.format(sku_id)
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.4515.131 Safari/537.36'.format(str(random.randint(80, 90))),
@@ -2317,12 +2329,13 @@ class JDSeckillService(object):
         sku_info['stock_info'] = self.stock_state_map[str(resp_json['stockInfo']['stockState'])]
 
         # check if item available
-        if 'stockDesc' in resp_json['stockInfo'] and '该商品在该地区暂不支持销售' in resp_json['stockInfo']['stockDesc']:
-            if not self.failure_msg:
-                self.failure_msg = '该商品在该地区暂不支持销售'
-            if self.emailer:
-                self.emailer.send(subject='该商品在该地区暂不支持销售', content='该商品在该地区暂不支持销售')
-            raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+        if is_check_stock:
+            if 'stockDesc' in resp_json['stockInfo'] and '该商品在该地区暂不支持销售' in resp_json['stockInfo']['stockDesc']:
+                if not self.failure_msg:
+                    self.failure_msg = '该商品在该地区暂不支持销售'
+                if self.emailer:
+                    self.emailer.send(subject='商品在该地区暂不支持销售', content='该商品在该地区暂不支持销售')
+                raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
 
         sku_info['list_price'] = resp_json['price']['m']
         sku_info['current_price'] = resp_json['price']['p']
@@ -4104,7 +4117,7 @@ class JDSeckillService(object):
                                 seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
                                 seckill_item['rate'] = seckill_item['rate'].replace('折','')
                                 if 'wareId' in seckill_item:
-                                    item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True)
+                                    item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True, is_check_stock = False)
                                     seckill_item['isReserveProduct'] = item_info['is_reserve_product']
                                     seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
                                     # seckill_item['list_price'] =  item_info['list_price']

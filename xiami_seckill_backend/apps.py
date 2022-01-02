@@ -91,14 +91,14 @@ class XiamiSeckillAppConfig(AppConfig):
         try:
             login_user_service = LoginUserService()
             jd_user_service = JDUserService()
-
+            jd_seckill_service_shared = JDSeckillService()
+            
             login_user_list = login_user_service.find_all_users()
 
             for user in login_user_list:
                 login_username = user['username']
                 self.logger.info('checking for user:' + login_username)
-                jd_seckill_service = JDSeckillService(login_username)
-                jd_user_arrangement_cache = jd_seckill_service.get_arrangement_status(login_username)
+                jd_user_arrangement_cache = jd_seckill_service_shared.get_arrangement_status(login_username)
                 db_arrangement = jd_user_service.find_jd_user_arrangement_by_username(login_username)
 
                 self.logger.info('cache info')
@@ -177,6 +177,7 @@ class XiamiSeckillAppConfig(AppConfig):
 
                         if should_run_for_user:
                             self.logger.info('正在恢复线程: ' + jd_username)
+                            jd_seckill_service = JDSeckillService(login_username)
                             jd_user = jd_user_service.find_jd_user_by_username_and_nick_name(login_username, jd_username, is_mask_jd_pwd=False)
                             if jd_user['pc_cookie_str']:
                                 jd_seckill_service._assign_cookies_from_remote(jd_user['pc_cookie_str'])
