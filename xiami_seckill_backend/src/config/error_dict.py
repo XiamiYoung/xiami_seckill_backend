@@ -159,6 +159,11 @@ error_dict = {
                 'httpCode': HTTP_CODE_401,
                 'msg': 'QQ账号没有绑定京东，点击关联QQ按钮绑定京东账号'
             },
+            'ADDR_NO_STOCK':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "013",
+                'httpCode': HTTP_CODE_500,
+                'msg': '抱歉，您当前选择的城市无法购买商品'
+            },
         }
     }
 }

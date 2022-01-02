@@ -1801,6 +1801,7 @@ class JDSeckillService(object):
         }
 
         try:
+            should_stop = False
             if is_multi_thread:
                 self.log_stream_info('线程[%s]开始提交订单',thread_index)
 
@@ -1830,18 +1831,26 @@ class JDSeckillService(object):
                 if is_multi_thread:
                     self.log_stream_info('线程[%s]订单提交失败, 错误码：%s, 返回信息：%s', thread_index, result_code, message)
                 else:
+                    self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
                     if not self.failure_msg:
                         self.failure_msg = message
                         if '正在进行预约抢购活动，暂不支持购买' in message:
                             self.log_stream_info('预约商品不支持移动端有货下单模式，切换到PC端')
                             self.temp_order_traditional = True
-                    self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
+                        elif '抱歉，您当前选择的' in message or '当前选择的地区无法购买' in message:
+                            self.log_stream_info(message)
+                            should_stop = True
+                            if self.emailer:
+                                self.emailer.send(subject=message, content=message)
+                            raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
                 return False
         except Exception as e:
             if not is_fake:
                 self.log_stream_error(e)
                 self.log_stream_error(resp.text)
                 logging.exception("error")
+                if should_stop:
+                    raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
             return False
         finally:
             if is_multi_thread:
@@ -2281,7 +2290,7 @@ class JDSeckillService(object):
         """
         sku_name, imageUrl = self.get_item_info(sku_id)
 
-        url = 'https://item-soa.jd.com/getWareBusiness?skuId={}'.format(sku_id)
+        url = 'https://item-soa.jd.com/getWareBusiness?skuId={}&area={}'.format(sku_id, self.area_id)
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.4515.131 Safari/537.36'.format(str(random.randint(80, 90))),
@@ -2306,6 +2315,15 @@ class JDSeckillService(object):
         sku_info['sku_name'] = sku_name
         sku_info['imageUrl'] = imageUrl
         sku_info['stock_info'] = self.stock_state_map[str(resp_json['stockInfo']['stockState'])]
+
+        # check if item available
+        if 'stockDesc' in resp_json['stockInfo'] and '该商品在该地区暂不支持销售' in resp_json['stockInfo']['stockDesc']:
+            if not self.failure_msg:
+                self.failure_msg = '该商品在该地区暂不支持销售'
+            if self.emailer:
+                self.emailer.send(subject='该商品在该地区暂不支持销售', content='该商品在该地区暂不支持销售')
+            raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+
         sku_info['list_price'] = resp_json['price']['m']
         sku_info['current_price'] = resp_json['price']['p']
         if 'op' in resp_json['price'] and resp_json['price']['op']:
@@ -3161,6 +3179,18 @@ class JDSeckillService(object):
             self.log_stream_info('抢购时间               %s', target_time)
             self.log_stream_info('=========================商品信息========================================')
 
+            # 获取默认发货地址
+            addr_obj = self.get_user_addr()
+            self.addr_obj = addr_obj
+            self.default_addr = self.get_default_addr(addr_obj)
+            self.is_multiple_addr = self.is_has_multiple_addr(self.default_addr)
+            self.area_id = self.get_area_id_by_default_addr(self.default_addr)
+            self.area_ref_id = self.get_area_ref_id_by_default_addr(self.default_addr)
+            recipient_name = self.get_recipient_by_default_addr(self.default_addr)
+            full_addr = self.get_full_addr_by_default_addr(self.default_addr)
+            self.log_stream_info('默认收件人:        %s', recipient_name)
+            self.log_stream_info('默认收件地址:      %s', full_addr)
+
             # 获取商品信息
             item_info = self.get_item_detail_info(sku_id)
             item_info['count'] = num
@@ -3203,18 +3233,6 @@ class JDSeckillService(object):
             self.clear_cart()
 
             self.log_stream_info('重要：抢购结束前不要再添加任何商品到购物车, 目标商品会被自动添加')
-
-            # 获取默认发货地址
-            addr_obj = self.get_user_addr()
-            self.addr_obj = addr_obj
-            self.default_addr = self.get_default_addr(addr_obj)
-            self.is_multiple_addr = self.is_has_multiple_addr(self.default_addr)
-            self.area_id = self.get_area_id_by_default_addr(self.default_addr)
-            self.area_ref_id = self.get_area_ref_id_by_default_addr(self.default_addr)
-            recipient_name = self.get_recipient_by_default_addr(self.default_addr)
-            full_addr = self.get_full_addr_by_default_addr(self.default_addr)
-            self.log_stream_info('默认收件人:        %s', recipient_name)
-            self.log_stream_info('默认收件地址:      %s', full_addr)
 
             # 获取cookie用户信息
             self.user_id, self.jxsid = self._get_user_info_from_cookie()
@@ -3724,6 +3742,8 @@ class JDSeckillService(object):
     def log_stream_error(self, message, *args):
         if self.stream_enabled:
             level = 'Error'
+            if isinstance(message, RestfulException):
+                message = message.msg
             self.cache_dao.push_to_stream(self.logger_stream, build_stream_message(message, level, args))
         self.logger.error(message, *args)
 
