@@ -2038,7 +2038,7 @@ class JDSeckillService(object):
         retry_interval = 0.1
         count = 0
 
-        while count < 500:
+        while count < 200:
             resp = self.sess.get(url=url, headers=headers, params=payload)
             resp_json = parse_json(resp.text)
             if resp_json.get('url'):
@@ -3202,6 +3202,15 @@ class JDSeckillService(object):
             self.print_product_info(item_info)
 
             self.log_stream_info('=========================================================================')
+
+            # 检查是否无货
+            if item_info['stock_info'] == '无货':
+                self.log_stream_error(item_info['sku_name'] + '在该地区无货')
+                if not self.failure_msg:
+                    self.failure_msg = item_info['sku_name'] + '在该地区无货'
+                if self.emailer:
+                    self.emailer.send(subject=item_info['sku_name'] + '在该地区无货', content=item_info['sku_name'] + '在该地区无货')
+                return False
             
             # 自动预约
             if item_info['is_reserve_product'] and item_info['reserve_info']['reserve_state_str'] == '正在预约':
