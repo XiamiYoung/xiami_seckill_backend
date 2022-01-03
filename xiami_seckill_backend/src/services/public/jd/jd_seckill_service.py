@@ -2425,10 +2425,10 @@ class JDSeckillService(object):
                     if 'code' in icon and ( icon['code'] == 'free_baoyou' or icon['code'] == 'free_sxbaoyou'):
                         sku_info['is_free_delivery'] = True
                         break
-        else:
-            if 'stockInfo' in resp_json.keys():
-                if 'dcashDesc' in resp_json['stockInfo'] and '免运费' in resp_json['stockInfo']['dcashDesc']:
-                    sku_info['is_free_delivery'] = True
+                    
+        if 'stockInfo' in resp_json.keys():
+            if 'dcashDesc' in resp_json['stockInfo'] and '免运费' in resp_json['stockInfo']['dcashDesc']:
+                sku_info['is_free_delivery'] = True
 
         if is_wait_for_limit:
             api_limit_interval = 0.5
