@@ -2418,13 +2418,13 @@ class JDSeckillService(object):
             sku_info['is_oversea_product'] = True
             self.has_oversea_product = True
 
-        if sku_info['is_jd_delivery']:
-            if 'servicesInfoUnited' in resp_json.keys():
-                if 'serviceInfo' in resp_json['servicesInfoUnited']:
-                    for icon in resp_json['servicesInfoUnited']['serviceInfo']['basic']['iconList']:
-                        if 'code' in icon and ( icon['code'] == 'free_baoyou' or icon['code'] == 'free_sxbaoyou'):
-                            sku_info['is_free_delivery'] = True
-                            break
+        # if sku_info['is_jd_delivery']:
+        if 'servicesInfoUnited' in resp_json.keys():
+            if 'serviceInfo' in resp_json['servicesInfoUnited']:
+                for icon in resp_json['servicesInfoUnited']['serviceInfo']['basic']['iconList']:
+                    if 'code' in icon and ( icon['code'] == 'free_baoyou' or icon['code'] == 'free_sxbaoyou'):
+                        sku_info['is_free_delivery'] = True
+                        break
         else:
             if 'stockInfo' in resp_json.keys():
                 if 'dcashDesc' in resp_json['stockInfo'] and '免运费' in resp_json['stockInfo']['dcashDesc']:
@@ -2888,11 +2888,14 @@ class JDSeckillService(object):
 
         return self.order_price_threshold
 
-    def pre_order_cart_action(self):
+    def pre_order_cart_action(self, is_before_start=False):
         # 无法添加购物车商品，抢购开始后再次尝试添加
         if not self.is_marathon_mode:
-            # 提前添加目标商品到购物车
-            self.log_stream_info('添加目标商品到购物车')
+            # 等待随机秒添加目标商品到购物车，避免购物车错误
+            if is_before_start:
+                random_wait = random.randint(0, 10)
+                self.log_stream_info('等待%s秒添加目标商品到购物车', random_wait)
+                time.sleep(random_wait)
             # self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
             is_select_cart = False
             self.create_temp_order(is_select_cart=is_select_cart)
@@ -3093,7 +3096,7 @@ class JDSeckillService(object):
             return False
 
         # 开始前leading_in_sec再次检查是否为marathon模式
-        leading_in_sec = 60
+        leading_in_sec = 120
         sleep_interval = 10
         title = '抢购前[{0}]秒检查商品是否为marathon模式'.format(leading_in_sec)
         self.call_function_with_leading_time(title, sleep_interval, self.check_is_marathon_before_start, target_time, leading_in_sec)
@@ -3105,7 +3108,7 @@ class JDSeckillService(object):
         adjusted_target_time = ''
         
         # 开始前leading_in_sec更新系统时间
-        leading_in_sec = 20
+        leading_in_sec = 30
         sleep_interval = 0.1
         title = '抢购前[{0}]秒更新系统时间'.format(leading_in_sec)
         adjusted_server_time_in_cache = self.call_function_with_leading_time(title, sleep_interval, self.update_sys_time, target_time, leading_in_sec)
@@ -3118,7 +3121,7 @@ class JDSeckillService(object):
 
         if not adjusted_server_time_in_cache:
             # 开始前leading_in_sec分析服务器时间
-            leading_in_sec = 15
+            leading_in_sec = 20
             sleep_interval = 0.1
             is_adjust_time = True
             is_warm_time_request = True
@@ -3133,7 +3136,8 @@ class JDSeckillService(object):
             return False
 
         # 购物车准备
-        self.pre_order_cart_action()
+        is_before_start = True
+        self.pre_order_cart_action(is_before_start)
 
         # 设置取消检查点
         if not self.execution_keep_running:

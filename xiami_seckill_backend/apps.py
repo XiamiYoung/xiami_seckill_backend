@@ -185,16 +185,18 @@ class XiamiSeckillAppConfig(AppConfig):
                                 jd_seckill_service._assign_cookies_from_remote(jd_user['mobile_cookie_str'])
 
                             jd_seckill_service.set_user_props(jd_user)
-
-                            # 等待随机秒，避免cookie错误
-                            random_wait = random.randint(1, 20)
-                            time.sleep(random_wait)
-                            self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, jd_username, leading_time, True))
+                            self.execute_in_thread(self.resume_thread, (jd_seckill_service, execution_arrangement_array,login_username, jd_username, leading_time))
                         else:
                             self.logger.info('用户:' + jd_username + '无需恢复线程')
         except Exception as e:
             system_emailer.send(subject='重启线程失败', content='重启线程失败')
             self.logger.error(traceback.format_exc())
+
+    def resume_thread(self, jd_seckill_service, execution_arrangement_array,login_username, jd_username, leading_time):
+        # 等待随机秒，避免cookie错误
+        random_wait = random.randint(1, 20)
+        time.sleep(random_wait)
+        self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, jd_username, leading_time, True))
 
     def _get_sku_from_db_arrangement(self, db_arrangement_json, jd_username, start_time_str):
          # {
