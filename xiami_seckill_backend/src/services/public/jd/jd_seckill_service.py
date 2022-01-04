@@ -122,7 +122,7 @@ class JDSeckillService(object):
         self.most_delivery_fee = 20
         self.order_price_threshold = 0
         self.random_sku_price = 0
-        self.create_order_round = 0
+        self.create_order_round = random.randint(0, 10)
         self.is_ready_place_order = False
         self.headers = {'User-Agent': self.user_agent}
         self.risk_control = '' # 默认空字符串
@@ -2425,7 +2425,7 @@ class JDSeckillService(object):
                     if 'code' in icon and ( icon['code'] == 'free_baoyou' or icon['code'] == 'free_sxbaoyou'):
                         sku_info['is_free_delivery'] = True
                         break
-                    
+
         if 'stockInfo' in resp_json.keys():
             if 'dcashDesc' in resp_json['stockInfo'] and '免运费' in resp_json['stockInfo']['dcashDesc']:
                 sku_info['is_free_delivery'] = True
