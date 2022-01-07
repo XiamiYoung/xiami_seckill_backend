@@ -119,6 +119,7 @@ class JDSeckillService(object):
         self.db_prop_secret = global_config.get('config', 'db_prop_secret')
         self.default_system_emailer_address = global_config.get('config', 'default_system_emailer_address')
         self.default_system_emailer_token = global_config.get('config', 'default_system_emailer_token')
+        self.default_area_id = global_config.get('config', 'default_area_id')
         self.most_delivery_fee = 20
         self.order_price_threshold = 0
         self.random_sku_price = 0
@@ -2302,7 +2303,7 @@ class JDSeckillService(object):
         if is_check_stock:
             url = 'https://item-soa.jd.com/getWareBusiness?skuId={}&area={}'.format(sku_id, self.area_id)
         else:
-            url = 'https://item-soa.jd.com/getWareBusiness?skuId={}'.format(sku_id)
+            url = 'https://item-soa.jd.com/getWareBusiness?skuId={}&area={}'.format(sku_id, self.default_area_id) 
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.4515.131 Safari/537.36'.format(str(random.randint(80, 90))),
@@ -2328,14 +2329,21 @@ class JDSeckillService(object):
         sku_info['imageUrl'] = imageUrl
         sku_info['stock_info'] = self.stock_state_map[str(resp_json['stockInfo']['stockState'])]
 
+        out_of_stock = False
+        if 'stockDesc' in resp_json['stockInfo'] and '该商品在该地区暂不支持销售' in resp_json['stockInfo']['stockDesc']:
+            out_of_stock = True
+
         # check if item available
         if is_check_stock:
-            if 'stockDesc' in resp_json['stockInfo'] and '该商品在该地区暂不支持销售' in resp_json['stockInfo']['stockDesc']:
+            if out_of_stock:
+                self.log_stream_error('商品在该地区暂不销售')
                 if not self.failure_msg:
-                    self.failure_msg = '该商品在该地区暂不支持销售'
+                    self.failure_msg = '商品在该地区暂不销售'
                 if self.emailer:
-                    self.emailer.send(subject='商品在该地区暂不支持销售', content='该商品在该地区暂不支持销售')
+                    self.emailer.send(subject='商品在该地区暂不销售', content='商品在该地区暂不销售')
                 raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+        else:
+            sku_info['out_of_stock'] = out_of_stock
 
         sku_info['list_price'] = resp_json['price']['m']
         sku_info['current_price'] = resp_json['price']['p']
@@ -2553,10 +2561,18 @@ class JDSeckillService(object):
 
     @fetch_latency
     def update_sys_time(self, target_time, leading_in_sec):
+        self.log_stream_info('抢购开始前%s秒检查缓存时间', leading_in_sec)
         adjusted_server_time_in_cache = self.get_adjusted_server_time_from_cache(target_time)
         if not adjusted_server_time_in_cache:
-            self.log_stream_info('抢购开始前%s秒更新系统时间', leading_in_sec)
+            self.log_stream_info('更新系统时间')
             adjust_server_time(self.analyse_server_time, self.login_username)
+
+            self.log_stream_info('同步服务器时间')
+            is_adjust_time = True
+            is_warm_time_request = False
+            adjusted_target_time, t_server_real_time, t_network = self.sync_target_time(target_time, is_adjust_time, is_warm_time_request)
+            self.put_adjusted_server_time_in_cache(target_time, adjusted_target_time, 'finished')
+            return adjusted_target_time
         else:
             self.log_stream_info('忽略系统时间更新, 使用缓存时间%s', adjusted_server_time_in_cache)
             return adjusted_server_time_in_cache
@@ -2620,7 +2636,7 @@ class JDSeckillService(object):
 
 
     @fetch_latency
-    def sync_target_time(self, target_time, leading_in_sec, is_adjust_time, is_warm_time_request):
+    def sync_target_time(self, target_time, is_adjust_time, is_warm_time_request):
         delay = 0
         target_time_datetime = None
         # 获取服务器时间
@@ -2676,8 +2692,7 @@ class JDSeckillService(object):
     def debug_after_order(self, target_time, t_order_start):
         is_adjust_time = False
         is_warm_time_request = False
-        leading_in_sec = 0
-        adjusted_target_time, t_server_real_time, t_reach = self.sync_target_time(target_time, leading_in_sec, is_adjust_time, is_warm_time_request)
+        adjusted_target_time, t_server_real_time, t_reach = self.sync_target_time(target_time, is_adjust_time, is_warm_time_request)
         t_order_end = get_now_datetime()
 
         t_order_cost = get_timestamp_in_milli_sec(t_order_end) - get_timestamp_in_milli_sec(t_order_start)
@@ -3097,7 +3112,7 @@ class JDSeckillService(object):
 
         # 开始前leading_in_sec再次检查是否为marathon模式
         leading_in_sec = 120
-        sleep_interval = 10
+        sleep_interval = 1
         title = '抢购前[{0}]秒检查商品是否为marathon模式'.format(leading_in_sec)
         self.call_function_with_leading_time(title, sleep_interval, self.check_is_marathon_before_start, target_time, leading_in_sec)
 
@@ -3106,30 +3121,28 @@ class JDSeckillService(object):
             return False
 
         adjusted_target_time = ''
-        
-        # 开始前leading_in_sec更新系统时间
-        leading_in_sec = 30
-        sleep_interval = 0.1
-        title = '抢购前[{0}]秒更新系统时间'.format(leading_in_sec)
-        adjusted_server_time_in_cache = self.call_function_with_leading_time(title, sleep_interval, self.update_sys_time, target_time, leading_in_sec)
-        if adjusted_server_time_in_cache:
-            adjusted_target_time = adjusted_server_time_in_cache
 
-        # 设置取消检查点
-        if not self.execution_keep_running:
-            return False
+        try:
+            # 开始前leading_in_sec更新系统时间
+            leading_in_sec = 60
+            sleep_interval = 1
+            title = '抢购前[{0}]秒更新系统时间'.format(leading_in_sec)
+            adjusted_target_time = self.call_function_with_leading_time(title, sleep_interval, self.update_sys_time, target_time, leading_in_sec)
 
-        if not adjusted_server_time_in_cache:
-            # 开始前leading_in_sec分析服务器时间
-            leading_in_sec = 20
-            sleep_interval = 0.1
-            is_adjust_time = True
-            is_warm_time_request = True
-            title = '抢购前[{}]秒分析服务器时间'.format(leading_in_sec)
-            adjusted_target_time, t_server_real_time, t_network = self.call_function_with_leading_time(title, sleep_interval, self.sync_target_time, target_time, leading_in_sec, is_adjust_time, is_warm_time_request)
-            self.put_adjusted_server_time_in_cache(target_time, adjusted_target_time, 'finished')
+            # 设置取消检查点
+            if not self.execution_keep_running:
+                return False
 
-        adjusted_target_time = self.adjust_leading_time_once(adjusted_target_time)
+            adjusted_target_time = self.adjust_leading_time_once(adjusted_target_time)
+        except Exception as e:
+            self.log_stream_error('更新/同步时间发生错误，等待10秒获取其他线程缓存')
+            traceback.print_exc()
+            time.sleep(10)
+            adjusted_target_time = self.get_adjusted_server_time_from_cache(target_time)
+            if not adjusted_target_time:
+                self.execution_failure = True
+                self.failure_msg = '更新/同步时间发生错误'
+                return False
 
         # 设置取消检查点
         if not self.execution_keep_running:
@@ -4020,6 +4033,11 @@ class JDSeckillService(object):
 
             adjust_server_time_cache_key = LOCK_KEY_ADJUST_SERVER_TIME + target_time
             json_obj = self.cache_dao.get(adjust_server_time_cache_key)
+
+            # 等待线程初始化完毕
+            time.sleep(1)
+
+            # 没有缓存，初始化
             if not json_obj:
                 json_obj = {
                     'status': 'running',
@@ -4027,7 +4045,10 @@ class JDSeckillService(object):
                 }
                 self.cache_dao.put(adjust_server_time_cache_key, json_obj, DEFAULT_CACHE_TTL)
                 return None
+            
+            # 发现缓存，正在运行中， 等待
             elif json_obj['status'] == 'running':
+                # 释放缓存锁，允许其他线程检查或更新时间
                 if lock.locked():
                     lock.release()
                 time.sleep(10)
@@ -4036,6 +4057,7 @@ class JDSeckillService(object):
                     return json_obj['adjusted_server_time']
                 else:
                     return None
+            # 发现缓存，已计算完毕，直接返回
             else:
                 return json_obj['adjusted_server_time']
         finally:
@@ -4124,6 +4146,8 @@ class JDSeckillService(object):
                                     item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True, is_check_stock = False)
                                     seckill_item['isReserveProduct'] = item_info['is_reserve_product']
                                     seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
+                                    seckill_item['outOfStock'] = item_info['out_of_stock']
+                                    seckill_item['stockInfo'] = item_info['stock_info']
                                     # seckill_item['list_price'] =  item_info['list_price']
                                 else:
                                     self.log_stream_info(seckill_item)
