@@ -3171,7 +3171,11 @@ class JDSeckillService(object):
     def actions_after_order_submit(self, order_id_list, target_time, t_order_start):
         
         # 下单效率debug信息
-        self.debug_after_order(target_time, t_order_start)
+        try:
+            self.debug_after_order(target_time, t_order_start)
+        except Exception as e:
+            traceback.print_exc()
+            self.log_stream_error('获取debug服务器时间失败')
 
         is_check_price = False # 继续下单模式会先取消订单
         is_send_message = True
