@@ -376,7 +376,7 @@ class JDController(JDBaseController):
 
         # call service
         try:
-            ret = jd_seckill_service.get_item_detail_info(sku_id, is_wait_for_limit=True)
+            ret = jd_seckill_service.get_item_detail_info(sku_id, is_wait_for_limit=True, is_check_stock=False)
             resp_body_data = {
                                 'success': True,
                                 'sku_data': ret
