@@ -654,6 +654,28 @@ class JDController(JDBaseController):
         return response
 
     @csrf_exempt
+    def get_user_delivery_coupon(self, request):
+        # get data
+        data = str_to_json(request.body)
+        nick_name = data['nick_name']
+
+        # get JD service
+        jd_seckill_service = self._get_jd_seckill_service_with_cookie_after_login(request, nick_name) 
+
+        delivery_coupon_count = jd_seckill_service.get_user_delivery_coupon()
+
+        # send response
+        resp_body = BaseResBody().to_json_body()
+        resp_body_data = {
+                            'success': True,
+                            'delivery_coupon_count': delivery_coupon_count
+                        }
+        resp_body['body'] = resp_body_data
+        response = JsonResponse(resp_body)
+
+        return response
+
+    @csrf_exempt
     def save_jd_user_address(self, request):
         # get data
         data = str_to_json(request.body)

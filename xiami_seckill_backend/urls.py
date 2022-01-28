@@ -65,4 +65,5 @@ urlpatterns = [
     path('site/jd/delete-custom-sku', jd_controller.delete_custom_sku_info_from_cache),
     path('site/jd/get-user-address', jd_controller.get_jd_user_address),
     path('site/jd/save-user-address', jd_controller.save_jd_user_address),
+    path('site/jd/get-delivery-coupon', jd_controller.get_user_delivery_coupon),
 ]

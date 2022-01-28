@@ -1339,6 +1339,28 @@ class JDSeckillService(object):
             if is_multi_thread:
                 self.executed_thread_count += 1
 
+    @fetch_latency
+    def check_cart_item(self):
+        try:
+            url = "https://cart.jd.com/selectAllItem.action"
+            data = {
+                't': 0,
+                'outSkus': '',
+                'random': random.random()
+                # 'locationId' can be ignored
+            }
+            resp_text = self.sess.post(url, data=data).text
+
+            modifyResult = json.loads(resp_text)['sortedWebCartResult']['modifyResult']
+            if 'allCount' not in modifyResult or 'selectedCount' not in modifyResult :
+                self.log_stream_info('购物车信息出错')
+                return False
+        except Exception as e:
+            self.log_stream_error('选中购物车发生异常, resp: %s, exception: %s', resp_text, e)
+            return False
+        self.log_stream_info('商品已在购物车内')
+        return True
+
     def wait_for_cart_operation(self):
         select_cart_count = 4
         count = 0
@@ -1556,6 +1578,24 @@ class JDSeckillService(object):
         if not response_status(resp):
             return False
         return True
+
+    def get_user_delivery_coupon(self):
+
+        url = 'https://plus.jd.com/index/getIntroInfo'
+        headers = {
+            'User-Agent': self.user_agent,
+            'Referer': 'https://plus.jd.com/index'
+        }
+
+        resp = self.sess.get(url=url, headers=headers)
+        resp_json = str_to_json(resp.text)
+
+        if 'success' in resp_json and resp_json['success'] and 'result' in resp_json:
+            result = resp_json['result']
+            unCouponCount = result['unCouponCount']
+            return unCouponCount
+
+        return 0
 
     def is_has_multiple_addr(self, addr_json):
         if len(addr_json) > 1:
@@ -2983,10 +3023,18 @@ class JDSeckillService(object):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_two()
+
+            if not self.check_cart_item():
+                self.create_temp_order_type_two()
+                if not self.check_cart_item():
+                    self.is_marathon_mode = True
+
         except Exception as e:
             self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_two()
+            if not self.check_cart_item():
+                self.is_marathon_mode = True
             
     @fetch_latency
     def create_temp_order_type_two(self):
@@ -3020,10 +3068,17 @@ class JDSeckillService(object):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_one()
+
+            if not self.check_cart_item():
+                self.create_temp_order_type_one()
+                if not self.check_cart_item():
+                    self.is_marathon_mode = True
         except Exception as e:
             self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_one()
+            if not self.check_cart_item():
+                self.is_marathon_mode = True
 
     @fetch_latency
     def create_temp_order_traditional(self, is_add_cart_item=False):
