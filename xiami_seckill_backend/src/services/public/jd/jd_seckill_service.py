@@ -3159,6 +3159,7 @@ class JDSeckillService(object):
             self.is_marathon_mode = True
         else:
             self.log_stream_info('商品为非marathon抢购模式, 正常下单')
+            self.is_marathon_mode = False
 
         self.clear_cart()
 
@@ -3322,19 +3323,11 @@ class JDSeckillService(object):
                 if not self.make_reserve(sku_id):
                     return False
             
-            # 尝试添加目标商品到购物车以测试是否可以添加成功
-            if not item_info['is_presale_product']:
-                if not self.is_marathon_mode:
-                    self.log_stream_info('非marathon抢购模式，尝试添加购物车')
-                    if not self.add_item_to_cart(sku_id, num):
-                        self.log_stream_info('提前添加%s到购物车失败', item_info['sku_name'])
-                        if not self.failure_msg:
-                            self.failure_msg = '添加购物车失败:' + item_info['sku_name']
-                        if self.emailer:
-                            self.emailer.send(subject='用户' + self.nick_name + '添加购物车失败:' + item_info['sku_name'], content='用户' + self.nick_name + '添加购物车失败:' + item_info['sku_name'])
-                        return False
-                else:
-                    self.log_stream_info('marathon抢购模式，略过添加购物车')
+            # # 尝试添加目标商品到购物车以测试是否可以添加成功
+            # if not item_info['is_presale_product'] and not self.add_item_to_cart(sku_id, num):
+            #     self.log_stream_info('提前添加%s到购物车失败', item_info['sku_name'])
+            #     self.log_stream_info('商品无法加入购物车，切换为marathon抢购模式')
+            #     self.is_marathon_mode = True
                 
 
             self.log_stream_info('=========================================================================')
