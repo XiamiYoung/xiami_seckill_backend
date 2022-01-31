@@ -2986,7 +2986,6 @@ class JDSeckillService(object):
         else:
             self.log_stream_info('marathon抢购模式, 等待开始')
 
-    @fetch_latency
     def create_temp_order_type_one(self):
         sleep_interval = 1
         sku_id = self.target_sku_id
@@ -3023,18 +3022,10 @@ class JDSeckillService(object):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_two()
-
-            if not self.check_cart_item():
-                self.create_temp_order_type_two()
-                if not self.check_cart_item():
-                    self.is_marathon_mode = True
-
         except Exception as e:
             self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_two()
-            if not self.check_cart_item():
-                self.is_marathon_mode = True
             
     @fetch_latency
     def create_temp_order_type_two(self):
@@ -3068,17 +3059,10 @@ class JDSeckillService(object):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_one()
-
-            if not self.check_cart_item():
-                self.create_temp_order_type_one()
-                if not self.check_cart_item():
-                    self.is_marathon_mode = True
         except Exception as e:
             self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
             self.create_temp_order_type_one()
-            if not self.check_cart_item():
-                self.is_marathon_mode = True
 
     @fetch_latency
     def create_temp_order_traditional(self, is_add_cart_item=False):
@@ -3169,22 +3153,14 @@ class JDSeckillService(object):
         item_info = self.target_product
         
         # 尝试添加目标商品到购物车以测试是否可以添加成功
-        if not item_info['is_presale_product']:
-            if not self.is_marathon_mode:
-                self.log_stream_info('非marathon抢购模式，尝试添加购物车')
-                if not self.add_item_to_cart(sku_id, num):
-                    self.log_stream_info('提前添加%s到购物车失败', item_info['sku_name'])
-                    if not self.failure_msg:
-                        self.failure_msg = '添加购物车失败:' + item_info['sku_name']
-                    if self.emailer:
-                        self.emailer.send(subject='用户' + self.nick_name + '添加购物车失败:' + item_info['sku_name'], content='用户' + self.nick_name + '添加购物车失败:' + item_info['sku_name'])
-                    return False
-                else:
-                    self.clear_cart()
-            else:
-                self.log_stream_info('marathon抢购模式，略过添加购物车')
+        if not item_info['is_presale_product'] and not self.add_item_to_cart(sku_id, num):
+            self.log_stream_info('提前添加%s到购物车失败', item_info['sku_name'])
+            self.log_stream_info('商品无法加入购物车，切换为marathon抢购模式')
+            self.is_marathon_mode = True
         else:
-            self.log_stream_info('预售模式，略过添加购物车')
+            self.log_stream_info('商品为非marathon抢购模式, 正常下单')
+
+        self.clear_cart()
 
     def actions_before_target_time(self, target_time):
 
@@ -3202,11 +3178,11 @@ class JDSeckillService(object):
         if not self.execution_keep_running:
             return False
 
-        # # 开始前leading_in_sec再次检查是否为marathon模式
-        # leading_in_sec = 120
-        # sleep_interval = 1
-        # title = '抢购前[{0}]秒检查商品是否为marathon模式'.format(leading_in_sec)
-        # self.call_function_with_leading_time(title, sleep_interval, self.check_is_marathon_before_start, target_time, leading_in_sec)
+        # 开始前leading_in_sec再次检查是否为marathon模式
+        leading_in_sec = 120
+        sleep_interval = 1
+        title = '抢购前[{0}]秒检查商品是否为marathon模式'.format(leading_in_sec)
+        self.call_function_with_leading_time(title, sleep_interval, self.check_is_marathon_before_start, target_time, leading_in_sec)
 
         # 设置取消检查点
         if not self.execution_keep_running:
