@@ -82,7 +82,8 @@ from utils.util import (
     build_order_message,
     sleep_with_check,
     build_stream_message,
-    get_timestamp_in_milli_sec
+    get_timestamp_in_milli_sec,
+    build_item_info
 )
 
 from utils.token_util import (
@@ -1300,36 +1301,43 @@ class JDSeckillService(object):
     @fetch_latency
     def select_all_cart_item(self, is_multi_thread=False):
         try:
-            url = "https://cart.jd.com/selectAllItem.action"
-            data = {
-                't': 0,
-                'outSkus': '',
-                'random': random.random()
-                # 'locationId' can be ignored
-            }
-            resp_text = self.sess.post(url, data=data).text
+            url = "https://api.m.jd.com/api?functionId=pcCart_jc_cartCheckAll"
 
-            modifyResult = json.loads(resp_text)['sortedWebCartResult']['modifyResult']
-            if 'allCount' not in modifyResult or 'selectedCount' not in modifyResult :
+            headers = {
+                'User-Agent': self.user_agent,
+                'origin': 'https://cart.jd.com',
+                'Referer': 'https://cart.jd.com/',
+            }
+
+            data = {
+                'functionId': 'pcCart_jc_cartCheckAll',
+                'appid': 'JDC_mall_cart',
+                'loginType': 3,
+                'body': json_to_str({"serInfo":{"area":self.area_id,"user-key":self.user_id}})
+            }
+
+            resp_text =  json.loads(self.sess.post(url, data=data, headers=headers).text)
+
+            if 'success' not in resp_text or not resp_text['success']:
                 self.log_stream_info('购物车信息出错')
                 return False
             else:
-                if modifyResult['allCount'] == 0:
+                if 'resultData' not in resp_text or not resp_text['resultData']['cartInfo'] or resp_text['resultData']['cartInfo']['checkedWareNum'] == 0:
                     self.log_stream_info('购物车商品已被删除，重新添加')
                     self.create_temp_order(is_add_cart_item=True)
                     return True
-            self.is_ready_place_order = modifyResult['selectedCount'] == modifyResult['allCount']
+            self.is_ready_place_order =  resp_text['resultData']['cartInfo']['checkedWareNum'] ==  resp_text['resultData']['cartInfo']['cartNum']
             if self.is_ready_place_order:
                 self.log_stream_info('完成购物车选中') 
             else:
                 self.log_stream_info('购物车选中失败') 
 
-            self.log_stream_info('当前商品价格: ' + str(float(modifyResult['finalPrice']))) 
+            self.log_stream_info('当前商品价格: ' + str(float(resp_text['resultData']['cartInfo']['Price']))) 
 
-            price_resumed = float(modifyResult['finalPrice']) > self.order_price_threshold
+            price_resumed = float(resp_text['resultData']['cartInfo']['Price']) > self.order_price_threshold
             if price_resumed:
                 self.price_resumed = True
-                self.log_stream_info('购物车价格已恢复原价, 当前价格:%s, 下单价格阈值: %s', float(modifyResult['finalPrice']), self.order_price_threshold) 
+                self.log_stream_info('购物车价格已恢复原价, 当前价格:%s, 下单价格阈值: %s', float(resp_text['resultData']['cartInfo']['Price']), self.order_price_threshold) 
 
             return price_resumed
         except Exception as e:
@@ -2991,34 +2999,37 @@ class JDSeckillService(object):
         sku_id = self.target_sku_id
         num = self.target_sku_num
 
-        url = 'https://p.m.jd.com/norder/order.action'
+        url = 'https://wq.jd.com/deal/minfo/orderinfo'
         headers = {
             'User-Agent': self.mobile_user_agent,
-            'referer':'https://plogin.m.jd.com/'
+            'referer':'https://wqs.jd.com/'
         }
 
         payload = {
-            'enterOrder': True,
-            'scene': 'jd',
-            'bid': '',
-            'wdref': 'https://item.m.jd.com/product/{}.html?sceneval=2'.format(sku_id),
-            'EncryptInfo': '',
-            'Token': '',
-            'sceneval': 2,
-            'isCanEdit': 1,
-            'lg': 0,
-            'supm': 0,
-            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
+            'action': 1,
             'type': 0,
+            'useaddr': 0,
+            'addressid': '',
+            'dpid': '',
+            'addrType': 1,
+            'paytype': 0,
+            'firstin': 1,
+            'scan_orig': '',
+            'sceneval': 2,
+            'reg': 1,
+            'encryptversion': 1,
+            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
+            'cmdyop': 0,
             'locationid': self.area_id,
-            'jxsid': self.jxsid
+            'clearbeancard': 1,
+            'wqref': ''
         }
 
         resp = self.sess.get(url, params=payload, headers=headers)
+
         try:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            title = soup.find("title")
-            if not title or not title.getText() == '确认订单':
+            resp_json = parse_json(resp.text)
+            if not ('errId' in resp_json and resp_json['errId'] == '0'):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_two()
@@ -3033,29 +3044,37 @@ class JDSeckillService(object):
         sku_id = self.target_sku_id
         num = self.target_sku_num
 
-        url = 'https://m.jingxi.com/deal/confirmorder/main'
+        url = 'https://wq.jd.com/deal/minfo/orderinfo'
         headers = {
-            'User-Agent': self.mobile_user_agent
+            'User-Agent': self.mobile_user_agent,
+            'referer':'https://wqs.jd.com/'
         }
 
         payload = {
-            'scene': 'jd',
-            'isCanEdit': 1,
-            'lg': 0,
-            'supm': 0,
-            'bizkey': 'pingou',
-            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
+            'action': 1,
             'type': 0,
+            'useaddr': 0,
+            'addressid': '',
+            'dpid': '',
+            'addrType': 1,
+            'paytype': 0,
+            'firstin': 1,
+            'scan_orig': '',
+            'sceneval': 2,
+            'reg': 1,
+            'encryptversion': 1,
+            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
+            'cmdyop': 0,
             'locationid': self.area_id,
-            'action': 3,
-            'bizval': 0,
-            'jxsid': self.jxsid
+            'clearbeancard': 1,
+            'wqref': ''
         }
+
         resp = self.sess.get(url, params=payload, headers=headers)
+
         try:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            title = soup.find("title")
-            if not title or not title.getText() == '确认订单':
+            resp_json = parse_json(resp.text)
+            if not ('errId' in resp_json and resp_json['errId'] == '0'):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
                 self.create_temp_order_type_one()
@@ -3092,6 +3111,7 @@ class JDSeckillService(object):
     
     def process_orders(self, order_id_list='', is_check_price=True, is_send_message=True):
         if order_id_list:
+
             # 打印订单信息
             is_silent = False
             if is_check_price:
@@ -3113,9 +3133,30 @@ class JDSeckillService(object):
                             # 购物车准备
                             self.pre_order_cart_action()
                         elif is_send_message and self.emailer:
-                            subject, content = build_order_message(self.nick_name, unpaid_order_item)
-                            self.emailer.send(subject=subject, content=content)
+                            is_order_deleted = True
+                            processed_order_item = None
+                            # 等待一段时间，重新获取订单信息判断是否已被删除
+                            time.sleep(10)
 
+                            # 获取订单信息
+                            order_list = self.get_order_info(is_silent)
+                             # 推送信息
+                            for unpaid_order_item in order_list:
+                                processed_order_item = unpaid_order_item
+                                unpaid_order_id = str(unpaid_order_item['order_id'])
+                                for submitted_order_id  in order_id_list:
+                                    if str(submitted_order_id) == unpaid_order_id:
+                                        is_order_deleted = False
+                                        subject, content = build_order_message(self.nick_name, unpaid_order_item)
+                                        self.emailer.send(subject=subject, content=content)
+
+                            if is_order_deleted:
+                                order_id_list = []
+                                if not self.failure_msg:
+                                    self.failure_msg = "订单被删单"
+                                built_item_str = build_item_info(processed_order_item['item_info_array'])
+                                subject = self.nick_name + '被删单'
+                                self.emailer.send(subject=subject, content=built_item_str)
             return order_id_list
 
     def save_order(self, order_id):
@@ -3428,7 +3469,7 @@ class JDSeckillService(object):
                 else:
                     # marathon模式
                     submit_retry_count = 10
-                    submit_interval = 0.1
+                    submit_interval = 0.5
                     order_id = self.exec_marathon_seckill(self.target_sku_id, self.target_sku_num, submit_retry_count, submit_interval)
                     if not order_id and not self.execution_keep_running:
                         return []
@@ -4293,6 +4334,7 @@ class JDSeckillService(object):
         return resp_json
 
     def get_sku_predict(self):
+        ret_list = []
         try:
             """获取用户信息
             :return: 用户名
@@ -4302,8 +4344,7 @@ class JDSeckillService(object):
                 'User-Agent': self.user_agent
             }
             resp = self.sess.get(url=url, headers=headers)
-
-            ret_list = []
+            
             soup = BeautifulSoup(resp.text, "html.parser")
             div_content = soup.find('div', {'class': 'content'})
             ul_child = div_content.findChildren("ul" , recursive=False)[0]
