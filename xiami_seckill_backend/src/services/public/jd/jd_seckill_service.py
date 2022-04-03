@@ -2432,6 +2432,7 @@ class JDSeckillService(object):
         sku_info['is_presale_product'] = False
         sku_info['is_oversea_product'] = False
         sku_info['is_free_delivery'] = False
+        sku_info['disableCoupon'] = False
 
         sku_info['price_discount'] = str(round(float(sku_info['current_price']) / float(sku_info['original_price']), 3) * 10)
         if len(sku_info['price_discount']) > 4:
@@ -2442,6 +2443,9 @@ class JDSeckillService(object):
             sku_info['is_jd_delivery'] = True
         else:
             sku_info['is_jd_delivery'] = False
+
+        if 'disableCoupon' in resp_json:
+            sku_info['disableCoupon'] = True
 
         if 'miaoshaInfo' in resp_json.keys():
             seckill_json = resp_json['miaoshaInfo']
@@ -4278,6 +4282,7 @@ class JDSeckillService(object):
                                     seckill_item['outOfStock'] = item_info['out_of_stock']
                                     seckill_item['stockInfo'] = item_info['stock_info']
                                     seckill_item['isMarathonProduct'] = item_info['is_marathon_product']
+                                    seckill_item['disableCoupon'] = item_info['disableCoupon']
                                     # seckill_item['list_price'] =  item_info['list_price']
                                 else:
                                     self.log_stream_info(seckill_item)
