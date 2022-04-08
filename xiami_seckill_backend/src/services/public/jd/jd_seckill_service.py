@@ -124,7 +124,7 @@ class JDSeckillService(object):
         self.most_delivery_fee = 20
         self.order_price_threshold = 0
         self.random_sku_price = 0
-        self.create_order_round = random.randint(0, 10)
+        self.create_order_error_count = 0
         self.is_ready_place_order = False
         self.headers = {'User-Agent': self.user_agent}
         self.risk_control = '' # 默认空字符串
@@ -1325,7 +1325,6 @@ class JDSeckillService(object):
                 if 'resultData' not in resp_text or not resp_text['resultData']['cartInfo'] or resp_text['resultData']['cartInfo']['checkedWareNum'] == 0:
                     self.log_stream_info('购物车商品已被删除，重新添加')
                     self.create_temp_order(is_add_cart_item=True)
-                    return True
             self.is_ready_place_order =  resp_text['resultData']['cartInfo']['checkedWareNum'] ==  resp_text['resultData']['cartInfo']['cartNum']
             if self.is_ready_place_order:
                 self.log_stream_info('完成购物车选中') 
@@ -2998,8 +2997,8 @@ class JDSeckillService(object):
         else:
             self.log_stream_info('marathon抢购模式, 等待开始')
 
-    def create_temp_order_type_one(self):
-        sleep_interval = 1
+    def create_temp_order_bp(self):
+        sleep_interval = 2
         sku_id = self.target_sku_id
         num = self.target_sku_num
 
@@ -3036,56 +3035,12 @@ class JDSeckillService(object):
             if not ('errId' in resp_json and resp_json['errId'] == '0'):
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
                 time.sleep(sleep_interval)
-                self.create_temp_order_type_two()
+                return False
+            return True
         except Exception as e:
             self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
             time.sleep(sleep_interval)
-            self.create_temp_order_type_two()
-            
-    @fetch_latency
-    def create_temp_order_type_two(self):
-        sleep_interval = 1
-        sku_id = self.target_sku_id
-        num = self.target_sku_num
-
-        url = 'https://wq.jd.com/deal/minfo/orderinfo'
-        headers = {
-            'User-Agent': self.mobile_user_agent,
-            'referer':'https://wqs.jd.com/'
-        }
-
-        payload = {
-            'action': 1,
-            'type': 0,
-            'useaddr': 0,
-            'addressid': '',
-            'dpid': '',
-            'addrType': 1,
-            'paytype': 0,
-            'firstin': 1,
-            'scan_orig': '',
-            'sceneval': 2,
-            'reg': 1,
-            'encryptversion': 1,
-            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
-            'cmdyop': 0,
-            'locationid': self.area_id,
-            'clearbeancard': 1,
-            'wqref': ''
-        }
-
-        resp = self.sess.get(url, params=payload, headers=headers)
-
-        try:
-            resp_json = parse_json(resp.text)
-            if not ('errId' in resp_json and resp_json['errId'] == '0'):
-                self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
-                time.sleep(sleep_interval)
-                self.create_temp_order_type_one()
-        except Exception as e:
-            self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
-            time.sleep(sleep_interval)
-            self.create_temp_order_type_one()
+            return False
 
     @fetch_latency
     def create_temp_order_traditional(self, is_add_cart_item=False):
@@ -3102,16 +3057,23 @@ class JDSeckillService(object):
         self.save_address()
 
     def create_temp_order(self, is_select_cart=True, is_add_cart_item=False):
+        order_created = False
         if self.temp_order_traditional:
             self.create_temp_order_traditional(is_add_cart_item)
-        elif self.create_order_round % 2 == 0:
-            self.create_temp_order_type_one()
-        else:
-            self.create_temp_order_type_two()
+        while not order_created and self.create_order_error_count < 3:
+           self.log_stream_info("第%s次通过BP链接创建订单", self.create_order_error_count + 1)
+           order_created = self.create_temp_order_bp()
+           self.create_order_error_count += 1
 
-        if not self.temp_order_traditional and is_select_cart:
-            self.select_all_cart_item()
-        self.create_order_round += 1
+        if not order_created:
+            self.log_stream_error('创建订单失败')
+            self.failure_msg = '创建订单失败'
+            raise RestfulException(error_dict['SERVICE']['JD']['ERROR_CREATE_ORDER'])
+        
+
+        # if not self.temp_order_traditional and is_select_cart:
+        #     self.select_all_cart_item()
+        # self.create_order_error_count += 1
     
     def process_orders(self, order_id_list='', is_check_price=True, is_send_message=True):
         if order_id_list:
@@ -3322,6 +3284,8 @@ class JDSeckillService(object):
             self.temp_order_traditional = False
             # 重置marathon模式
             self.is_marathon_mode = False
+            # 重置创建订单失败次数
+            self.create_order_error_count = 0
 
             # 检查传入参数
             self.validate_params(sku_id, num)
@@ -3473,7 +3437,7 @@ class JDSeckillService(object):
                 else:
                     # marathon模式
                     submit_retry_count = 10
-                    submit_interval = 0.5
+                    submit_interval = 1
                     order_id = self.exec_marathon_seckill(self.target_sku_id, self.target_sku_num, submit_retry_count, submit_interval)
                     if not order_id and not self.execution_keep_running:
                         return []

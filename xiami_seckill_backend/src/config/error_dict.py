@@ -164,6 +164,11 @@ error_dict = {
                 'httpCode': HTTP_CODE_500,
                 'msg': '抱歉，您当前选择的城市无法购买商品'
             },
+            'ERROR_CREATE_ORDER':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "014",
+                'httpCode': HTTP_CODE_500,
+                'msg': '创建订单失败'
+            },
         }
     }
 }
