@@ -2118,10 +2118,10 @@ class JDSeckillService(object):
         :param sku_id: 商品id
         :return:
         """
-        if not self.seckill_url.get(sku_id):
-            self.seckill_url[sku_id] = self._get_seckill_url(sku_id)
-            if not self.execution_keep_running:
-                return False
+        # if not self.seckill_url.get(sku_id):
+        self.seckill_url[sku_id] = self._get_seckill_url(sku_id)
+        if not self.execution_keep_running:
+            return False
         headers = {
             'User-Agent': self.user_agent,
             'Host': 'marathon.jd.com',
@@ -2991,9 +2991,13 @@ class JDSeckillService(object):
                 random_wait = random.randint(0, 10)
                 self.log_stream_info('等待%s秒添加目标商品到购物车', random_wait)
                 time.sleep(random_wait)
-            # self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
             is_select_cart = False
             self.create_temp_order(is_select_cart=is_select_cart)
+            if is_before_start:
+                # 使用优惠券
+                self.get_best_coupons()
+                # 提前刷新订单
+                self.get_order_coupons()
         else:
             self.log_stream_info('marathon抢购模式, 等待开始')
 
@@ -3038,7 +3042,7 @@ class JDSeckillService(object):
                 return False
             return True
         except Exception as e:
-            self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%s', sleep_interval)
+            self.log_stream_error('发现异常，创建订单错误, resp: %s, exception: %s', resp.text, e)
             time.sleep(sleep_interval)
             return False
 
@@ -3069,6 +3073,9 @@ class JDSeckillService(object):
             self.log_stream_error('创建订单失败')
             self.failure_msg = '创建订单失败'
             raise RestfulException(error_dict['SERVICE']['JD']['ERROR_CREATE_ORDER'])
+        else:
+            # 重置错误计数
+            self.create_order_error_count = 0
         
 
         # if not self.temp_order_traditional and is_select_cart:
@@ -3200,7 +3207,7 @@ class JDSeckillService(object):
 
         try:
             # 开始前leading_in_sec更新系统时间
-            leading_in_sec = 60
+            leading_in_sec = 30
             sleep_interval = 1
             title = '抢购前[{0}]秒更新系统时间'.format(leading_in_sec)
             adjusted_target_time = self.call_function_with_leading_time(title, sleep_interval, self.update_sys_time, target_time, leading_in_sec)
@@ -3352,7 +3359,7 @@ class JDSeckillService(object):
             self.order_price_threshold = 0
             self.log_stream_info('下单价格阈值           %s元', self.get_target_product_price_threshold())
             self.log_stream_info('提前下单时间           %sms', self.order_leading_in_millis)
-
+            
             #  清空购物车
             self.log_stream_info('清空购物车')
             self.clear_cart()
