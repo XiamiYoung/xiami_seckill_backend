@@ -308,6 +308,7 @@ class JDController(JDBaseController):
         elif result and 'success' in result and not result['success']:
             resp_body_data = {
                                 'success': False,
+                                'smsUrl':result['smsUrl'],
                                 'error':result['msg']
                             }
             resp_body['body'] = resp_body_data

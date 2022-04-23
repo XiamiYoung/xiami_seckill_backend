@@ -691,42 +691,44 @@ class JDSeckillService(object):
                                         time.sleep(1)
                         elif '认证方式' == page_title:
 
+                            current_url = driver.current_url
+                            self.log_stream_info(current_url)
+
                             # need mobile code
                             cache_value_dict = {
                                 'success': False,
+                                'smsUrl': current_url,
                                 'msg': 'NEED_SECURITY_CODE_MOBILE'
                             }
                             self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
 
-                            mobile_code_btn = driver.find_element_by_css_selector("a[class='mode-btn voice-mode']")
-                            mobile_code_btn.click()
+                            # mobile_code_btn = driver.find_element_by_css_selector("a[class='mode-btn voice-mode']")
+                            # mobile_code_btn.click()
 
-                            time.sleep(1)
-
-                            error_diag = driver.find_elements_by_class_name("dialog-des")
-                            if error_diag:
-                                msg = error_diag[0].text
-                                self.log_stream_error("获取移动端cookie失败:%s", msg)
-                                cache_value_dict = {
-                                    'success': False,
-                                    'msg': msg
-                                }
-                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
-                                return False
+                            # error_diag = driver.find_elements_by_class_name("dialog-des")
+                            # if error_diag:
+                            #     msg = error_diag[0].text
+                            #     self.log_stream_error("获取移动端cookie失败:%s", msg)
+                            #     cache_value_dict = {
+                            #         'success': False,
+                            #         'msg': msg
+                            #     }
+                            #     self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                            #     return False
                     
-                            try:
-                                mobile_code_send_btn = driver.find_element_by_css_selector("button[class='getMsg-btn timer active']")
-                                mobile_code_send_btn.click()
-                            except Exception as e:
-                                self.log_stream_error("获取移动端cookie失败:%s", '获取发送验证码按钮失败')
-                                cache_value_dict = {
-                                    'success': False,
-                                    'msg': '获取发送验证码按钮失败'
-                                }
-                                print(user_agent)
-                                print(driver.page_source)
-                                self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
-                                return False
+                            # try:
+                            #     mobile_code_send_btn = driver.find_element_by_css_selector("button[class='getMsg-btn timer active']")
+                            #     mobile_code_send_btn.click()
+                            # except Exception as e:
+                            #     self.log_stream_error("获取移动端cookie失败:%s", '获取发送验证码按钮失败')
+                            #     cache_value_dict = {
+                            #         'success': False,
+                            #         'msg': '获取发送验证码按钮失败'
+                            #     }
+                            #     print(user_agent)
+                            #     print(driver.page_source)
+                            #     self.cache_dao.put(qq_qr_scan_result_cache_key, cache_value_dict)
+                            #     return False
 
                             # wait for mobile code input
                             for _ in range(input_retry_times):
@@ -2118,8 +2120,8 @@ class JDSeckillService(object):
         :param sku_id: 商品id
         :return:
         """
-        # if not self.seckill_url.get(sku_id):
-        self.seckill_url[sku_id] = self._get_seckill_url(sku_id)
+        if not self.seckill_url.get(sku_id):
+            self.seckill_url[sku_id] = self._get_seckill_url(sku_id)
         if not self.execution_keep_running:
             return False
         headers = {
@@ -2993,11 +2995,11 @@ class JDSeckillService(object):
                 time.sleep(random_wait)
             is_select_cart = False
             self.create_temp_order(is_select_cart=is_select_cart)
-            if is_before_start:
-                # 使用优惠券
-                self.get_best_coupons()
-                # 提前刷新订单
-                self.get_order_coupons()
+            # if is_before_start:
+            #     # 使用优惠券
+            #     self.get_best_coupons()
+            #     # 提前刷新订单
+            #     self.get_order_coupons()
         else:
             self.log_stream_info('marathon抢购模式, 等待开始')
 
@@ -3127,9 +3129,8 @@ class JDSeckillService(object):
                                 order_id_list = []
                                 if not self.failure_msg:
                                     self.failure_msg = "订单被删单"
-                                built_item_str = build_item_info(processed_order_item['item_info_array'])
                                 subject = self.nick_name + '被删单'
-                                self.emailer.send(subject=subject, content=built_item_str)
+                                self.emailer.send(subject=subject, content=subject)
             return order_id_list
 
     def save_order(self, order_id):
