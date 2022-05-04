@@ -4,6 +4,7 @@ import threading
 import time
 import random
 import traceback
+import requests
 
 from .src.config.config import global_config
 from .src.utils.emailer import Emailer
@@ -38,6 +39,7 @@ class XiamiSeckillAppConfig(AppConfig):
 
             self.execute_in_thread(self.query_arrangement_on_ready, [system_emailer])
             self.execute_in_thread(self.query_sys_info_on_ready, [system_emailer])
+            self.execute_in_thread(self.check_bp_config, [system_emailer])
         else:
             self.logger.info('略过启动程序')
             return
@@ -46,6 +48,26 @@ class XiamiSeckillAppConfig(AppConfig):
         t = threading.Thread(target=func, args=args)
         t.daemon = True
         t.start()
+
+    def check_bp_config(self, system_emailer):
+        try:
+            mobile_order_app_id = global_config.get('config', 'mobile_order_app_id')
+            mobile_order_token = global_config.get('config', 'mobile_order_token')
+            sess = requests.session()
+            resp_text = sess.get('https://jstatic.3.cn/pay/js/app.6467b368.js').text
+
+            if mobile_order_app_id not in resp_text:
+                system_emailer.send(subject='BP APP ID 已失效', content='BP APP ID 已失效')
+
+            if mobile_order_token not in resp_text:
+                system_emailer.send(subject='BP Token 已失效', content='BP Token 已失效')
+
+            self.logger.info('BP配置检查成功')
+        except Exception as e:
+            self.logger.info('获取BP配置失败')
+            self.logger.error(e)
+            system_emailer.send(subject='获取BP配置失败', content='获取BP配置失败')
+            self.logger.error(traceback.format_exc())
 
 
     def query_sys_info_on_ready(self, system_emailer):
@@ -143,6 +165,7 @@ class XiamiSeckillAppConfig(AppConfig):
                     for login_user_arrangement in jd_user_arrangement_cache:
                         jd_username = login_user_arrangement['nick_name']
                         leading_time = login_user_arrangement['leading_time']
+                        address_id = login_user_arrangement['address_id']
                         if 'seckill_arangement' not in login_user_arrangement or len(login_user_arrangement['seckill_arangement']) == 0:
                             self.logger.info('checking user:' + jd_username + ' has no cache arrangement, skip')
                             continue
@@ -185,18 +208,20 @@ class XiamiSeckillAppConfig(AppConfig):
                                 jd_seckill_service._assign_cookies_from_remote(jd_user['mobile_cookie_str'])
 
                             jd_seckill_service.set_user_props(jd_user)
-                            self.execute_in_thread(self.resume_thread, (jd_seckill_service, execution_arrangement_array,login_username, jd_username, leading_time))
+                            self.execute_in_thread(self.resume_thread, (jd_seckill_service, execution_arrangement_array,login_username, jd_username, leading_time, address_id))
                         else:
                             self.logger.info('用户:' + jd_username + '无需恢复线程')
         except Exception as e:
             system_emailer.send(subject='重启线程失败', content='重启线程失败')
             self.logger.error(traceback.format_exc())
 
-    def resume_thread(self, jd_seckill_service, execution_arrangement_array,login_username, jd_username, leading_time):
+    def resume_thread(self, jd_seckill_service, execution_arrangement_array,login_username, jd_username, leading_time, address_id):
         # 等待随机秒，避免cookie错误
         random_wait = random.randint(1, 20)
         time.sleep(random_wait)
-        self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, jd_username, leading_time, True))
+        ignore_stock_check = False
+        force_run = True
+        self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, jd_username, leading_time, address_id, ignore_stock_check, force_run))
 
     def _get_sku_from_db_arrangement(self, db_arrangement_json, jd_username, start_time_str):
          # {

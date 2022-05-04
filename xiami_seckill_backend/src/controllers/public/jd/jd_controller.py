@@ -400,6 +400,8 @@ class JDController(JDBaseController):
         arrangement_list = data['arrangement_list']
         nick_name = data['nick_name']
         leading_time = data['leading_time']
+        ignore_stock_check = data['ignore_stock_check']
+        address_id = data['address_id']
         login_username = self._get_login_username(request)
 
         # get JD service
@@ -417,7 +419,7 @@ class JDController(JDBaseController):
                 execution_arrangement_array.append(execution_item)
 
         # call service
-        self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, nick_name, leading_time))
+        self.execute_in_thread(jd_seckill_service.execute_arrangement, (execution_arrangement_array,login_username, nick_name, leading_time, address_id, ignore_stock_check))
 
         # send response
         resp_body = BaseResBody().to_json_body()
@@ -735,7 +737,7 @@ class JDController(JDBaseController):
         resp_body = BaseResBody().to_json_body()
 
         # check cookie valid
-        if not jd_seckill_service.get_user_info():
+        if not jd_seckill_service.get_user_info_mobile():
             resp_body_data = {
                             'success': False,
                             'msg': '用户cookie失效'

@@ -169,6 +169,21 @@ error_dict = {
                 'httpCode': HTTP_CODE_500,
                 'msg': '创建订单失败'
             },
+            'INPUT_PWD':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "014",
+                'httpCode': HTTP_CODE_500,
+                'msg': '请输入支付密码'
+            },
+            'WRONG_PWD':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "015",
+                'httpCode': HTTP_CODE_500,
+                'msg': '支付密码不正确'
+            },
+            'ADDR_NO_STOCK':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "016",
+                'httpCode': HTTP_CODE_500,
+                'msg': '优惠券获取失败'
+            }
         }
     }
 }

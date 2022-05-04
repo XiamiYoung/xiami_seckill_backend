@@ -351,7 +351,10 @@ def sleep_with_check(sleep_interval, cache_key):
 def build_stream_message(message, level, *args):
     if args and len(args[0])!=0:
         return {'content': '[' + level + '][' + datetime_to_str(datetime.now()) + ']' + message.replace('%s','{}').format(*args[0])}
-    return {'content': '[' + level + '][' + datetime_to_str(datetime.now()) + ']' +  message}
+    try:
+        return {'content': '[' + level + '][' + datetime_to_str(datetime.now()) + ']' +  message}
+    except Exception as e:
+        return {'content': '[' + level + '][' + datetime_to_str(datetime.now()) + ']' +  str(message)}
 
 def model_to_dict(instance):
     opts = instance._meta

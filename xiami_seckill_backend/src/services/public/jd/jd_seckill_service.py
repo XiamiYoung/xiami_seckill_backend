@@ -28,6 +28,8 @@ from services.public.common.login_user_service import LoginUserService
 from services.public.jd.jd_order_service import JDOrderService
 from services.public.jd.jd_user_service import JDUserService
 
+from string import Template
+
 from daos.cache.redis import CacheDao
 import redis_lock
 from config.constants import (
@@ -132,6 +134,7 @@ class JDSeckillService(object):
         self.execution_status_cache_key = ''
         self.execution_keep_running = True
         self.execution_failure = False
+        self.ignore_stock_check = False
         self.logger_stream = ''
         self.logger_group = ''
         self.logger_consumer = ''
@@ -165,6 +168,7 @@ class JDSeckillService(object):
         self.user_id = ''
         self.jxsid = ''
         self.area_ref_id = ''
+        self.is_pc_cookie_valid = False
         self.is_login = False
         self.price_resumed = False
         self.sess = requests.session()
@@ -264,13 +268,13 @@ class JDSeckillService(object):
 
         jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, self.nick_name, is_mask_jd_pwd=True)
 
-        addr_obj = self.get_user_addr()
-        default_addr = self.get_default_addr(addr_obj)
+        addr_obj = self.get_user_addr_pc()
+        default_addr = self.get_default_addr_pc(addr_obj)
 
         # update pc login status
         jd_user_data['nick_name'] = self.nick_name
-        jd_user_data['recipient_name'] = self.get_recipient_by_default_addr(default_addr)
-        jd_user_data['full_addr'] = self.get_full_addr_by_default_addr(default_addr)
+        jd_user_data['recipient_name'] = self.get_recipient_by_default_addr_pc(default_addr)
+        jd_user_data['full_addr'] = self.get_full_addr_by_default_addr_pc(default_addr)
         jd_user_data['pc_cookie_status'] = True
         jd_user_data['pc_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
         jd_user_data['pc_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
@@ -334,7 +338,7 @@ class JDSeckillService(object):
 
     def _get_user_info_from_cookie(self):
         cookies = self.sess.cookies.get_dict()
-        return cookies['user-key'], cookies['jxsid']
+        return cookies
 
     def _validate_cookies(self):
         """验证cookies是否有效（是否登陆）
@@ -451,39 +455,85 @@ class JDSeckillService(object):
         reserve_url = resp_json.get('url')
         return 'https:' + reserve_url if reserve_url else None
 
+    # def make_reserve(self, sku_id):
+    #     """商品预约
+    #     :param sku_id: 商品id
+    #     :return:
+    #     """
+    #     reserve_url = self._get_reserve_url(sku_id)
+    #     if not reserve_url:
+    #         self.log_stream_info('%s 为非预约商品，跳过预约', sku_id)
+    #         return True
+    #     headers = {
+    #         'User-Agent': self.user_agent,
+    #         'Referer': 'https://item.jd.com/{}.html'.format(sku_id),
+    #     }
+        
+    #     resp = self.sess.get(url=reserve_url, headers=headers)
+    #     soup = BeautifulSoup(resp.text, "html.parser")
+    #     p_tag = soup.find('p', {'class': 'bd-right-result'})
+    #     h3_tag = soup.find('h3', {'class': 'ftx-02'})
+    #     if p_tag:
+    #         reserve_result = soup.find('p', {'class': 'bd-right-result'}).text.strip(' \t\r\n')
+    #         # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
+    #         self.log_stream_info(reserve_result)
+    #         return True
+    #     elif h3_tag:
+    #         self.log_stream_info('商品已过预约期，继续下单')
+    #         self.is_reserve_finished = True
+    #         return True
+    #     else:
+    #         self.log_stream_info("商品预约失败，需要在app商品页面手动预约后再试")
+    #         if not self.failure_msg:
+    #             self.failure_msg = '商品预约失败，需要在app商品页面手动预约后再试'
+    #             if self.emailer:
+    #                 self.emailer.send(subject='用户' + self.nick_name + '需要手动预约商品再试', content='请在app商品页面手动预约')
+    #         return False
+
     def make_reserve(self, sku_id):
-        """商品预约
-        :param sku_id: 商品id
-        :return:
-        """
-        reserve_url = self._get_reserve_url(sku_id)
-        if not reserve_url:
-            self.log_stream_info('%s 为非预约商品，跳过预约', sku_id)
-            return True
-        headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://item.jd.com/{}.html'.format(sku_id),
+        url = 'https://wq.jd.com/bases/yuyue/item'
+        payload = {
+            'skuId': sku_id,
+            'sceneval': 2,
+            'dataType': 1
         }
-        resp = self.sess.get(url=reserve_url, headers=headers)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        p_tag = soup.find('p', {'class': 'bd-right-result'})
-        h3_tag = soup.find('h3', {'class': 'ftx-02'})
-        if p_tag:
-            reserve_result = soup.find('p', {'class': 'bd-right-result'}).text.strip(' \t\r\n')
-            # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
-            self.log_stream_info(reserve_result)
-            return True
-        elif h3_tag:
-            self.log_stream_info('商品已过预约期，继续下单')
-            self.is_reserve_finished = True
-            return True
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://wqs.jd.com/',
+        }
+
+        resp = self.sess.get(url=url, headers=headers, params=payload)
+        resp_json = parse_json(parse_callback_str(resp.text))
+
+        self.log_stream_info(resp_json)
+
+        if 'list' in resp_json and len(resp_json['list']) > 0:
+            result_list = resp_json['list']
+            sku_item_resp = result_list[0]
+            reply_code = sku_item_resp['replyCode']
+            if reply_code == '6' or reply_code == '9':
+                # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
+                self.log_stream_info(sku_item_resp['replyMsg'])
+                return True 
+            elif reply_code == '0':
+                # 预约失败，请稍后重试, 一般出现于预约时间未开始/结束/非预约商品
+                self.log_stream_info('商品已过预约期，继续下单')
+                return True 
+            else:
+                self.log_stream_info("商品预约失败，需要在app商品页面手动预约后再试")
+                if not self.failure_msg:
+                    self.failure_msg = '商品预约失败，需要在app商品页面手动预约后再试'
+                    if self.emailer:
+                        self.emailer.send(subject='用户' + self.nick_name + '需要手动预约商品再试', content='请在app商品页面手动预约')
+                return False
         else:
-            self.log_stream_info("商品预约失败，需要在app商品页面手动预约后再试")
+            self.log_stream_info("商品预约失败")
             if not self.failure_msg:
-                self.failure_msg = '商品预约失败，需要在app商品页面手动预约后再试'
+                self.failure_msg = '商品预约失败'
                 if self.emailer:
-                    self.emailer.send(subject='用户' + self.nick_name + '需要手动预约商品再试', content='请在app商品页面手动预约')
+                    self.emailer.send(subject='用户' + self.nick_name + '商品预约失败', content='商品预约失败')
             return False
+
 
     def get_user_info(self):
         """获取用户信息
@@ -505,23 +555,66 @@ class JDSeckillService(object):
             raise RestfulException(error_dict['SERVICE']['JD']['PC_NOT_LOGIN'])
         return resp_json.get('nickName')
 
+    # def get_user_info_mobile(self):
+    #     """获取用户信息
+    #     :return: 用户名
+    #     """
+    #     url = 'https://wq.jd.com/pinbind/accountInfo?sceneval=2&g_login_type=1&callback=jsonpCBKA&g_ty=ls'
+    #     headers = {
+    #         'User-Agent': self.mobile_user_agent,
+    #         'referer': 'https://wqs.jd.com/'
+    #     }
+    #     try:
+    #         resp = self.sess.get(url=url, headers=headers)
+    #         resp_json = parse_json(parse_callback_str(resp.text))
+    #         if not resp_json.get('currPinInfo'):
+    #             return False
+    #         return resp_json.get('currPinInfo').get('pin')
+    #     except Exception as e:
+    #         return False
+
+
     def get_user_info_mobile(self):
         """获取用户信息
         :return: 用户名
         """
-        url = 'https://wq.jd.com/pinbind/accountInfo?sceneval=2&g_login_type=1&callback=jsonpCBKA&g_ty=ls'
+        url = 'https://api.m.jd.com/client.action'
+        
         headers = {
             'User-Agent': self.mobile_user_agent,
-            'referer': 'https://wqs.jd.com/'
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
         }
+
+        body = json_to_str({
+            "orgFlag": "JD_PinGou_New",
+            "callSource": "mainorder",
+            "isHomewhite": 0,
+            "sceneval": 2,
+            "bizModelCode": "6",
+            "externalLoginType": "1",
+            "bizModeClientType": "M",
+            "tenantCode": "jgm"
+        })
+
+
+        payload = {
+            'appid': 'jd-cphdeveloper-m',
+            'loginType': 2,
+            'functionId': 'GetJDUserInfoUnion',
+            'body': body
+        }
+
         try:
-            resp = self.sess.get(url=url, headers=headers)
-            resp_json = parse_json(parse_callback_str(resp.text))
-            if not resp_json.get('currPinInfo'):
+            resp = self.sess.get(url=url, params=payload, headers=headers)
+            resp_json = parse_json(resp.text)
+
+            if 'data' not in resp_json or 'userInfo' not in resp_json['data']:
                 return False
-            return resp_json.get('currPinInfo').get('pin')
+            return resp_json['data']['userInfo']['baseInfo']['nickname']
         except Exception as e:
             return False
+    
 
     def check_qq_qr_url_result(self, login_username, nick_name):
         qq_qr_url_result_cache_key = login_username + '_' + nick_name + "_qq_qr_url_result"
@@ -939,7 +1032,8 @@ class JDSeckillService(object):
         except Exception as e:
             self.log_stream_error('查询 %s 库存信息发生异常, resp: %s, exception: %s', sku_id, resp_text, e)
             raise e
-    
+
+
     def get_single_item_stock_type_two(self, sku_id):
         """获取单个商品库存状态
         :param sku_id: 商品id
@@ -995,7 +1089,7 @@ class JDSeckillService(object):
             if flag:
                 self.log_stream_info('===============================发现库存===========================================')
             else:
-                self.create_temp_order()
+                self.select_all_cart_item_pc()
             self.log_stream_info('库存状态: %s', self.stock_state_map[str(stock_state)])
             return flag
         except requests.exceptions.Timeout:
@@ -1028,15 +1122,17 @@ class JDSeckillService(object):
         #     self.log_stream_error(e)
         #     self.log_stream_info('公共查询库存api触发流量限制')
 
-        if is_random_check_stock:
-            if round % 2 == 0:
-                flag = self.get_single_item_stock_type_one(sku_id)
-            else:
-                flag = self.get_single_item_stock_type_two(sku_id)
-                if not flag:
-                    should_reduce_interval = True
-        else:
-            flag = self.get_single_item_stock_type_one(sku_id)
+        # if is_random_check_stock and self.is_pc_cookie_valid:
+        #     if round % 2 == 0:
+        #         flag = self.get_single_item_stock_type_one(sku_id)
+        #     else:
+        #         flag = self.get_single_item_stock_type_two(sku_id)
+        #         if not flag:
+        #             should_reduce_interval = True
+        # else:
+        #     flag = self.get_single_item_stock_type_one(sku_id)
+
+        flag = self.get_single_item_stock_type_one(sku_id)
 
         return flag, should_reduce_interval
 
@@ -1055,7 +1151,7 @@ class JDSeckillService(object):
         return parse_json(resp.text).get('p')
 
     @fetch_latency
-    def add_item_to_cart(self, sku_id, num):
+    def add_item_to_cart_pc(self, sku_id, num):
         """添加商品到购物车
 
         重要：
@@ -1099,54 +1195,148 @@ class JDSeckillService(object):
             self.log_stream_error('%s 添加到购物车失败', sku_id)
             return False
 
+    @fetch_latency
+    def add_item_to_cart(self, sku_id, num):
+        url = 'https://api.m.jd.com/deal/mshopcart/addcmdy?loginType=2'
+        payload = {
+            'body':'{"externalLoginType":1,"sceneval":"2","reg":"1","scene":"2","type":"0","commlist":"' + sku_id + ',,1,' + sku_id + ',1,0,0","locationid":"' + self.area_id.replace("_", "-") + '","tenantCode":"jgm","bizModelCode":"0","bizModeClientType":"M"}',
+            'loginType':2,
+            'appid':'m_core',
+            'functionId':'deal_mshopcart_addcmdy_m',
+            'uuid': self.visitKey
+        }
+
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://wqs.jd.com/',
+        }
+
+        try:
+            resp = self.sess.get(url=url, params=payload, headers=headers)
+            resp_json = parse_json(resp.text)
+            if 'errId' in resp_json and resp_json['errId'] == '0' and 'errMsg' in resp_json and resp_json['errMsg'] == '加入购物车成功':
+                self.log_stream_info('%s x %s 已成功加入购物车', sku_id, num)
+                return True
+            else:
+                self.log_stream_error('%s 添加到购物车失败', sku_id)
+                return False
+        except Exception as e:
+            self.log_stream_error('%s 添加到购物车失败', sku_id)
+            self.log_stream_error(e)
+            raise e
+
+    # def clear_cart(self):
+    #     """清空购物车 
+
+    #     :return: 清空购物车结果 True/False
+    #     """
+    #     # 1.select product  2.remove product 
+    #     url = 'https://cart.jd.com/quickDel.action'
+    #     data_select = {
+    #         'method': 'get',
+    #         '_': str(int(time.time() * 1000)),
+    #     }
+
+    #     headers = {
+    #         'User-Agent': self.user_agent,
+    #         'Referer': 'https://cart.jd.com/cart_index',
+    #     }
+
+    #     try:
+    #         select_resp = self.sess.get(url=url, params=data_select, headers=headers)
+
+    #         del_body = []
+    #         id_array = parse_cart_item_array(select_resp.text)
+
+    #         if 'cart' in select_resp.text:
+    #             for item in id_array:
+    #                 del_body.append('{id:sku_id,s:false,vs:false}'.replace("sku_id",item))
+                
+    #             del_body = str(del_body).replace("'","")
+
+    #             data_delete = {
+    #                 'method': 'del',
+    #                 'callback': 'jQuery{}'.format(random.randint(1000000, 9999999)),
+    #                 '_': str(int(time.time() * 1000)),
+    #                 'delParam': del_body
+    #             }
+                
+    #             remove_resp = self.sess.get(url=url, params=data_delete, headers=headers)
+    #             if (not response_status(select_resp)) or (not response_status(remove_resp)):
+    #                 self.log_stream_error('购物车清空失败')
+    #                 return False
+    #             self.log_stream_info('购物车清空成功, 清除商品%s', str(id_array))
+    #         else:
+    #             self.log_stream_info('购物车没有商品，不需要清空')
+    #         return True
+    #     except Exception as e:
+    #         logging.exception("error")
+    #         self.log_stream_error(e)
+    #         return False
+
+
+
     def clear_cart(self):
         """清空购物车 
 
         :return: 清空购物车结果 True/False
         """
         # 1.select product  2.remove product 
-        url = 'https://cart.jd.com/quickDel.action'
+        url = 'https://api.m.jd.com/client.action/deal/mshopcart/checkcmdy/m?sceneval=2&g_login_type=1&g_ty=ajax'
         data_select = {
-            'method': 'get',
-            '_': str(int(time.time() * 1000)),
+            'body':'{"tenantCode":"jgm","bizModelCode":"1","bizModeClientType":"M","externalLoginType":1,"platform":3,"commlist":"","pingouchannel":0,"all":"1","scene":"0","locationid":"' + self.area_id.replace("_", "-") + '","type":"0","templete":1,"reg":1,"version":"20190418","traceid":"","sceneval":2}',
+            'loginType':2,
+            'loginWQBiz':'golden-trade',
+            'appid':'m_core',
+            'platform':3,
+            'functionId':'deal_mshopcart_checkcmdy_m'
         }
 
         headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://cart.jd.com/cart_index',
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://wqs.jd.com/',
         }
 
         try:
-            select_resp = self.sess.get(url=url, params=data_select, headers=headers)
+            select_resp = self.sess.post(url=url, data=data_select, headers=headers)
 
-            del_body = []
-            id_array = parse_cart_item_array(select_resp.text)
+            id_array = []
+            commlist = []
+            vendor_cart = parse_json(select_resp.text)['cart']['venderCart']
+            if len(vendor_cart) == 0:
+                self.log_stream_info('购物车没有商品，不需要清空')
+                return True
+            else:
+                for item in vendor_cart:
+                    id_array.append(item['sortedItems'][0]['itemId'])
+                    commlist.append('{},,1,{},1,,0,skuUuid:{}@@useUuid:0'.format(item['sortedItems'][0]['itemId'],item['sortedItems'][0]['itemId'],item['sortedItems'][0]['polyItem']['products'][0]['skuUuid']))
 
-            if 'cart' in select_resp.text:
-                for item in id_array:
-                    del_body.append('{id:sku_id,s:false,vs:false}'.replace("sku_id",item))
-                
-                del_body = str(del_body).replace("'","")
+                commlist_str = '$'.join(commlist)
 
+                url = 'https://api.m.jd.com/client.action/deal/mshopcart/rmvcmdy/m?sceneval=2&g_login_type=1&g_ty=ajax'
                 data_delete = {
-                    'method': 'del',
-                    'callback': 'jQuery{}'.format(random.randint(1000000, 9999999)),
-                    '_': str(int(time.time() * 1000)),
-                    'delParam': del_body
+                    'body':'{"tenantCode":"jgm","bizModelCode":"1","bizModeClientType":"M","externalLoginType":1,"platform":3,"pingouchannel":0,"commlist":"' + commlist_str + '","type":0,"checked":0,"locationid":"' + self.area_id.replace("_", "-") + '","templete":1,"reg":1,"scene":0,"version":"20190418","traceid":"","sceneval":2}',
+                    'loginType':2,
+                    'loginWQBiz':'golden-trade',
+                    'appid':'m_core',
+                    'platform':3,
+                    'functionId':'deal_mshopcart_rmvcmdy_m'
                 }
-                
-                remove_resp = self.sess.get(url=url, params=data_delete, headers=headers)
-                if (not response_status(select_resp)) or (not response_status(remove_resp)):
+
+                    
+                remove_resp = self.sess.post(url=url, data=data_delete, headers=headers)
+                current_count = parse_json(remove_resp.text)['cart']['currentCount']
+
+                if current_count != "0":
                     self.log_stream_error('购物车清空失败')
                     return False
-                self.log_stream_info('购物车清空成功, 清除商品%s', str(id_array))
-            else:
-                self.log_stream_info('购物车没有商品，不需要清空')
-            return True
+                else:
+                    self.log_stream_info('购物车清空成功, 清除商品%s', str(id_array))
+                    return True
         except Exception as e:
             logging.exception("error")
             self.log_stream_error(e)
-            return False
+            raise e
 
     @fetch_latency
     def remove_sku_from_cart(self, sku_id):
@@ -1301,7 +1491,7 @@ class JDSeckillService(object):
         return response_status(resp)
 
     @fetch_latency
-    def select_all_cart_item(self, is_multi_thread=False):
+    def select_all_cart_item_pc(self, is_multi_thread=False):
         try:
             url = "https://api.m.jd.com/api?functionId=pcCart_jc_cartCheckAll"
 
@@ -1555,7 +1745,7 @@ class JDSeckillService(object):
             self.log_stream_error('更新默认地址为订单发货地址失败：%s', str(e))
             raise RestfulException(error_dict['SERVICE']['JD']['MOBILE_LOGIN_FAILURE'])
 
-    def get_user_addr(self):
+    def get_user_addr_pc(self):
 
         url = 'https://cd.jd.com/usual/address'
         payload = {
@@ -1570,6 +1760,21 @@ class JDSeckillService(object):
         resp = self.sess.get(url=url, headers=headers, params=payload)
         resp_json = parse_original_json(str_remove_newline(parse_callback_str(resp.text)))
         return resp_json
+
+    def get_user_addr(self):
+
+        url = 'https://wq.jd.com/deal/recvaddr/getrecvaddrlistV3'
+        payload = {
+            'sceneval': 2
+        }
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://wqs.jd.com/',
+        }
+
+        resp = self.sess.get(url=url, headers=headers, params=payload)
+        resp_json = parse_json(resp.text)
+        return resp_json['list']
 
     def set_user_default_address(self, address_id):
 
@@ -1588,23 +1793,69 @@ class JDSeckillService(object):
             return False
         return True
 
-    def get_user_delivery_coupon(self):
+    # def get_user_delivery_coupon(self):
 
-        url = 'https://plus.jd.com/index/getIntroInfo'
+    #     url = 'https://plus.jd.com/index/getIntroInfo'
+    #     headers = {
+    #         'User-Agent': self.user_agent,
+    #         'Referer': 'https://plus.jd.com/index'
+    #     }
+
+    #     resp = self.sess.get(url=url, headers=headers)
+    #     resp_json = str_to_json(resp.text)
+
+    #     if 'success' in resp_json and resp_json['success'] and 'result' in resp_json:
+    #         result = resp_json['result']
+    #         unCouponCount = result['unCouponCount']
+    #         return unCouponCount
+
+    #     return 0
+
+    def get_user_delivery_coupon(self):
+        url = 'https://api.m.jd.com/client.action'
+        
         headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://plus.jd.com/index'
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
         }
 
-        resp = self.sess.get(url=url, headers=headers)
-        resp_json = str_to_json(resp.text)
+        body = json_to_str({
+            "state": 1,
+            "wxadd": 1,
+            "filterswitch": 1,
+            "bizModelCode": "6",
+            "externalLoginType": "1",
+            "bizModeClientType": "M",
+            "tenantCode": "jgm"
+        })
 
-        if 'success' in resp_json and resp_json['success'] and 'result' in resp_json:
-            result = resp_json['result']
-            unCouponCount = result['unCouponCount']
-            return unCouponCount
 
-        return 0
+        payload = {
+            'appid': 'jd-cphdeveloper-m',
+            'loginType': 2,
+            'functionId': 'queryJdCouponListApplet',
+            'body': body
+        }
+
+        try:
+            resp = self.sess.get(url=url, params=payload, headers=headers)
+            resp_json = parse_json(resp.text)
+            if not response_status(resp):
+                self.log_stream_error("优惠券获取失败")
+                self.log_stream_error(resp_json)
+                raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+            else:
+                if 'coupon' in resp_json and resp_json['errorCode'] == 0 and 'useable' in resp_json['coupon'] and len(resp_json['coupon']['useable']) > 0:
+                    useable_list = resp_json['coupon']['useable']
+                    filtered = [coupon for coupon in useable_list if coupon['coupontype'] == 2]
+                    return len(filtered)
+                else:
+                    return 0
+        except Exception as e:
+            self.log_stream_error("优惠券获取失败")
+            self.log_stream_error(e)
+            raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
 
     def is_has_multiple_addr(self, addr_json):
         if len(addr_json) > 1:
@@ -1616,10 +1867,10 @@ class JDSeckillService(object):
        return str(default_addr['provinceId']) + "_" + str(default_addr['cityId']) + "_" + str(default_addr['countyId']) + "_" + str(default_addr['townId'])
 
     def get_area_ref_id_by_default_addr(self, default_addr):
-       return default_addr['id']
+       return default_addr['adid']
 
     def get_full_addr_by_default_addr(self, default_addr):
-       return default_addr['fullAddress']
+       return default_addr['addrfull']
 
     def get_mobile_by_default_addr(self, default_addr):
        return default_addr['mobile']
@@ -1629,9 +1880,99 @@ class JDSeckillService(object):
 
     def get_default_addr(self, addr_json):
         for item in addr_json:
-            if item['addressDefault']:
-                return item
+            if self.target_address_id:
+                if item['adid'] == self.target_address_id:
+                    return item
+            else:
+                if item['default_address'] == '1':
+                    return item
         return addr_json[0]
+
+    def get_area_id_by_default_addr_pc(self, default_addr):
+       return str(default_addr['provinceId']) + "_" + str(default_addr['cityId']) + "_" + str(default_addr['countyId']) + "_" + str(default_addr['townId'])
+
+    def get_area_ref_id_by_default_addr_pc(self, default_addr):
+       return default_addr['id']
+
+    def get_full_addr_by_default_addr_pc(self, default_addr):
+       return default_addr['fullAddress']
+
+    def get_mobile_by_default_addr_pc(self, default_addr):
+       return default_addr['mobile']
+
+    def get_recipient_by_default_addr_pc(self, default_addr):
+       return default_addr['name']
+
+    def get_default_addr_pc(self, addr_json):
+        for item in addr_json:
+            if self.target_address_id:
+                if item['id'] == self.target_address_id:
+                    return item
+            else:
+                if item['addressDefault']:
+                    return item
+        return addr_json[0]
+
+    # @fetch_latency
+    # def cancel_order(self, order_id):
+
+    #     """取消订单
+
+    #     :return: True/False 订单取消结果
+    #     """
+
+    #     # 获取订单passkey
+    #     url = 'https://orderop.jd.com/toolbar_showCancelButtonListNew'
+
+    #     headers = {
+    #         'User-Agent': self.user_agent
+    #     }
+
+    #     payload = {
+    #         'callback': 'jQuery{}'.format(random.randint(1000000, 9999999)),
+    #         'orderList': order_id,
+    #         'orderid': order_id,
+    #         '_': str(int(time.time() * 1000)),
+    #     }
+
+    #     resp = self.sess.get(url=url, params=payload, headers=headers)
+    #     try:
+    #         resp_json = parse_original_json(str_remove_newline(parse_callback_str(resp.text)))
+
+    #         if not resp_json:
+    #             self.log_stream_info('未发现订单%s或已取消', order_id)
+    #             return False, "未发现订单或已取消"
+    #         else:
+    #             passkey = resp_json[0]['passKey']
+
+    #             # 取消订单
+    #             url = 'https://orderop.jd.com/toolbar_cancelOrder'
+
+    #             headers = {
+    #                 'User-Agent': self.user_agent
+    #             }
+
+    #             payload = {
+    #                 'callback': 'jQuery{}'.format(random.randint(1000000, 9999999)),
+    #                 'action': 'cancelOrder',
+    #                 'cancelData': '{"cancelReasonId":1013}',
+    #                 'orderid': order_id,
+    #                 'key': passkey,
+    #                 '_': str(int(time.time() * 1000)),
+    #             }
+
+    #             resp = self.sess.get(url=url, params=payload, headers=headers)
+
+    #             if not response_status(resp):
+    #                 self.log_stream_error('订单取消失败')
+    #                 return False, "订单取消失败"
+    #             else:
+    #                 self.log_stream_info('订单取消成功')
+    #                 return True, "订单取消成功"
+    #     except Exception as e:
+    #         self.log_stream_info('未发现订单%s或已取消', order_id)
+    #         return False, "未发现订单或已取消"
+
 
     @fetch_latency
     def cancel_order(self, order_id):
@@ -1641,145 +1982,278 @@ class JDSeckillService(object):
         :return: True/False 订单取消结果
         """
 
-        # 获取订单passkey
-        url = 'https://orderop.jd.com/toolbar_showCancelButtonListNew'
-
+        url = 'https://api.m.jd.com/client.action'
+        
         headers = {
-            'User-Agent': self.user_agent
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
         }
+
+        body_param_template = Template(json_to_str({
+            "appType": 3,
+            "bizType": "2",
+            "source": "-1",
+            "deviceUUId": "",
+            "platform": 3,
+            "sceneval": "2",
+            "orderId": "$order_id",
+            "refundReasonId": "1012",
+            "refundReasonDesc": "不想要了",
+            "cartStatus": 2,
+            "tenantCode": "jgm",
+            "bizModelCode": "2",
+            "bizModeClientType": "M",
+            "bizModeFramework": "Taro",
+            "externalLoginType": 1
+        }))
+
 
         payload = {
-            'callback': 'jQuery{}'.format(random.randint(1000000, 9999999)),
-            'orderList': order_id,
-            'orderid': order_id,
-            '_': str(int(time.time() * 1000)),
+            'appid': 'm_core',
+            'loginType': 2,
+            'functionId': 'order_operate_cancel_m',
+            'body': body_param_template.substitute(order_id=order_id)
         }
 
-        resp = self.sess.get(url=url, params=payload, headers=headers)
         try:
-            resp_json = parse_original_json(str_remove_newline(parse_callback_str(resp.text)))
+            resp = self.sess.post(url=url, data=payload, headers=headers)
+            resp_json = parse_json(resp.text)
+            if not response_status(resp):
+                self.log_stream_error('取消订单失败')
+                self.log_stream_error(resp_json)
+                return False, "取消订单失败"
 
-            if not resp_json:
+            if not resp_json['body']['success']:
                 self.log_stream_info('未发现订单%s或已取消', order_id)
+                self.log_stream_info(resp_json['body']['operResultDesc'])
                 return False, "未发现订单或已取消"
             else:
-                passkey = resp_json[0]['passKey']
-
-                # 取消订单
-                url = 'https://orderop.jd.com/toolbar_cancelOrder'
-
-                headers = {
-                    'User-Agent': self.user_agent
-                }
-
-                payload = {
-                    'callback': 'jQuery{}'.format(random.randint(1000000, 9999999)),
-                    'action': 'cancelOrder',
-                    'cancelData': '{"cancelReasonId":1013}',
-                    'orderid': order_id,
-                    'key': passkey,
-                    '_': str(int(time.time() * 1000)),
-                }
-
-                resp = self.sess.get(url=url, params=payload, headers=headers)
-
-                if not response_status(resp):
-                    self.log_stream_error('订单取消失败')
-                    return False, "订单取消失败"
-                else:
-                    self.log_stream_info('订单取消成功')
-                    return True, "订单取消成功"
+                return True, "订单取消成功"
         except Exception as e:
             self.log_stream_info('未发现订单%s或已取消', order_id)
             return False, "未发现订单或已取消"
+
+
+    # def get_order_info(self, silent=False):
+    #     """查询订单信息
+    #     :param unpaid: 只显示未付款订单，可选参数，默认为True
+    #     :return:
+    #     """
+    #     url = 'https://order.jd.com/center/list.action'
+    #     payload = {
+    #         'search': 0,
+    #         'd': 1,
+    #         's': 4096,
+    #     }  # Orders for nearly three months
+    #     headers = {
+    #         'User-Agent': self.user_agent,
+    #         'Referer': 'https://passport.jd.com/uc/login?ltype=logout',
+    #     }
+
+    #     try:
+    #         resp = self.sess.get(url=url, params=payload, headers=headers)
+    #         if not response_status(resp):
+    #             self.log_stream_error('获取订单页信息失败')
+    #             return
+    #         soup = BeautifulSoup(resp.text, "html.parser")
+
+    #         order_table = soup.find('table', {'class': 'order-tb'})
+    #         table_bodies = order_table.select('tbody')
+    #         exist_order = False
+    #         order_list = []
+    #         for table_body in table_bodies:
+    #             # get order status
+    #             order_status = get_tag_value(table_body.select('span.order-status')).replace("订单状态：", "")
+
+    #             # check if order is waiting for payment
+    #             # wait_payment = bool(table_body.select('a.btn-pay'))
+    #             wait_payment = "等待付款" in order_status
+
+    #             # only show unpaid orders if unpaid=True
+    #             unpaid = True
+    #             if unpaid and (not wait_payment):
+    #                 continue
+
+    #             exist_order = True
+
+    #             # get order_time, order_id
+    #             tr_th = table_body.select('tr.tr-th')[0]
+    #             order_time = get_tag_value(tr_th.select('span.dealtime'))
+    #             order_id = get_tag_value(tr_th.select('span.number a'))
+
+    #             # get sum_price, pay_method
+    #             sum_price = ''
+    #             pay_method = ''
+    #             amount_div = table_body.find('div', {'class': 'amount'})
+    #             if amount_div:
+    #                 spans = amount_div.select('span')
+    #                 # pay_method = get_tag_value(spans, index=1)
+    #                 # if the order is waiting for payment, the price after the discount is shown.
+    #                 sum_price = get_tag_value(amount_div.select('strong'), index=1)[1:] if wait_payment \
+    #                     else get_tag_value(spans, index=0)[4:]
+
+    #             # get name and quantity of items in order
+    #             item_info_array = [] 
+    #             tr_bds = table_body.select('tr.tr-bd')
+    #             for tr_bd in tr_bds:
+    #                 item = tr_bd.find('div', {'class': 'goods-item'})
+    #                 if not item:
+    #                     break
+    #                 item_id = item.get('class')[1][2:]
+    #                 quantity = get_tag_value(tr_bd.select('div.goods-number'))[1:]
+
+
+    #                 item_info = {}
+    #                 item_info['sku_id'] = item_id
+    #                 item_info['quantity'] = quantity
+
+    #                 children_name = item.findChildren("a", {'class': 'a-link'} , recursive=True)
+    #                 for child in children_name:
+    #                     item_info['name'] = child.text
+
+    #                 children_img = item.findChildren("img", {'class': 'err-product'} , recursive=True)
+    #                 for child in children_img:
+    #                     item_info['image'] = "https:"+child['data-lazy-img'].replace('s60x60','s240x240')
+
+    #                 item_info_array.append(item_info)
+
+    #             # get address
+    #             address_element = list(soup.find('div', {'class': 'pc'}).children)
+    #             addr_name = address_element[1].text
+    #             addr = address_element[3].text
+
+    #             if not silent:
+    #                 self.log_stream_info('======================================================订单信息==================================================================')
+    #                 order_info_format = '下单时间:{0}----订单号:{1}----订单状态:{2}----总金额:{3}元----地址:{4}--{5}'
+    #                 self.log_stream_info(order_info_format.format(order_time, order_id, order_status,
+    #                                                     sum_price, addr_name, addr))
+    #                 for item_info in item_info_array:
+    #                     item_info_format = '商品数量:{0}----商品名称:{1}'
+    #                     self.log_stream_info(item_info_format.format(item_info['quantity'], item_info['name']))
+    #                 self.log_stream_info('======================================================订单信息==================================================================')
+
+    #             order_info = {
+    #                 'order_time': order_time,
+    #                 'order_id': order_id,
+    #                 'order_status': order_status,
+    #                 'sum_price':sum_price,
+    #                 'addr_name':addr_name,
+    #                 'addr':addr,
+    #                 'item_info_array':item_info_array
+    #             }
+    #             order_list.append(order_info)
+
+    #         if not exist_order:
+    #             self.log_stream_info('订单查询为空')
+            
+    #         return order_list
+    #     except Exception as e:
+    #         logging.exception("error")
+    #         self.log_stream_error(e)
 
     def get_order_info(self, silent=False):
         """查询订单信息
         :param unpaid: 只显示未付款订单，可选参数，默认为True
         :return:
         """
-        url = 'https://order.jd.com/center/list.action'
-        payload = {
-            'search': 0,
-            'd': 1,
-            's': 4096,
-        }  # Orders for nearly three months
+        url = 'https://api.m.jd.com/client.action'
+        
         headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://passport.jd.com/uc/login?ltype=logout',
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
+        }
+
+        body_param_template = Template(json_to_str({
+            "appType": 3,
+            "bizType": "2",
+            "source": "-1",
+            "deviceUUId": "",
+            "platform": 3,
+            "uuid": '$visit_key',
+            "sceneval": "2",
+            "curTab": "waitPay",
+            "orderListTag": 1,
+            "tenantCode": "jgm",
+            "bizModelCode": "2",
+            "bizModeClientType": "M",
+            "bizModeFramework": "Taro",
+            "externalLoginType": 1,
+        }))
+
+        payload = {
+            'appid': 'm_core',
+            'loginType': 2,
+            'functionId': 'order_list_m',
+            'body': body_param_template.substitute(visit_key=self.visitKey)
         }
 
         try:
             resp = self.sess.get(url=url, params=payload, headers=headers)
-            if not response_status(resp):
+            resp_json = parse_json(resp.text)
+            if not response_status(resp) or 'errorCode' in resp_json:
                 self.log_stream_error('获取订单页信息失败')
+                self.log_stream_error(resp_json)
                 return
-            soup = BeautifulSoup(resp.text, "html.parser")
 
-            order_table = soup.find('table', {'class': 'order-tb'})
-            table_bodies = order_table.select('tbody')
-            exist_order = False
             order_list = []
-            for table_body in table_bodies:
-                # get order status
-                order_status = get_tag_value(table_body.select('span.order-status')).replace("订单状态：", "")
+            order_list_resp = resp_json['body']['orderList']
+            if len(order_list_resp) == 0:
+                self.log_stream_info('订单查询为空')
+                return order_list
+            
+            for order_item in order_list_resp:
 
-                # check if order is waiting for payment
-                # wait_payment = bool(table_body.select('a.btn-pay'))
-                wait_payment = "等待付款" in order_status
-
-                # only show unpaid orders if unpaid=True
-                unpaid = True
-                if unpaid and (not wait_payment):
-                    continue
-
-                exist_order = True
-
-                # get order_time, order_id
-                tr_th = table_body.select('tr.tr-th')[0]
-                order_time = get_tag_value(tr_th.select('span.dealtime'))
-                order_id = get_tag_value(tr_th.select('span.number a'))
-
-                # get sum_price, pay_method
-                sum_price = ''
-                pay_method = ''
-                amount_div = table_body.find('div', {'class': 'amount'})
-                if amount_div:
-                    spans = amount_div.select('span')
-                    # pay_method = get_tag_value(spans, index=1)
-                    # if the order is waiting for payment, the price after the discount is shown.
-                    sum_price = get_tag_value(amount_div.select('strong'), index=1)[1:] if wait_payment \
-                        else get_tag_value(spans, index=0)[4:]
+                order_time = order_item['submitDate']
+                order_id = order_item['orderId']
+                sum_price = order_item['shouldPay']
+                order_status = order_item['orderStatusInfo']['orderStatusName']
 
                 # get name and quantity of items in order
-                item_info_array = [] 
-                tr_bds = table_body.select('tr.tr-bd')
-                for tr_bd in tr_bds:
-                    item = tr_bd.find('div', {'class': 'goods-item'})
-                    if not item:
-                        break
-                    item_id = item.get('class')[1][2:]
-                    quantity = get_tag_value(tr_bd.select('div.goods-number'))[1:]
-
-
+                item_info_array = []
+                for ware_item in order_item['wareInfoList']:
                     item_info = {}
-                    item_info['sku_id'] = item_id
-                    item_info['quantity'] = quantity
-
-                    children_name = item.findChildren("a", {'class': 'a-link'} , recursive=True)
-                    for child in children_name:
-                        item_info['name'] = child.text
-
-                    children_img = item.findChildren("img", {'class': 'err-product'} , recursive=True)
-                    for child in children_img:
-                        item_info['image'] = "https:"+child['data-lazy-img'].replace('s60x60','s240x240')
-
+                    item_info['sku_id'] = ware_item['skuId']
+                    item_info['quantity'] = ware_item['num']
+                    item_info['name'] = ware_item['wareName']
+                    item_info['image'] = ware_item['imageUrl']
                     item_info_array.append(item_info)
 
                 # get address
-                address_element = list(soup.find('div', {'class': 'pc'}).children)
-                addr_name = address_element[1].text
-                addr = address_element[3].text
+                body_param_template = Template(json_to_str({
+                    "appType": 3,
+                    "bizType": "2",
+                    "source": "-1",
+                    "deviceUUId": "",
+                    "platform": 3,
+                    "uuid": '$visit_key',
+                    "orderId": "$order_id",
+                    "sceneval": "2",
+                    "orderListTag": 1,
+                    "tenantCode": "jgm",
+                    "bizModelCode": "2",
+                    "bizModeClientType": "M",
+                    "bizModeFramework": "Taro",
+                    "externalLoginType": 1,
+                }))
+
+                payload = {
+                    'appid': 'm_core',
+                    'loginType': 2,
+                    'functionId': 'order_detail_m',
+                    'body': body_param_template.substitute(visit_key = self.visitKey, order_id = order_id)
+                }
+
+                resp_detail = self.sess.get(url=url, params=payload, headers=headers)
+                resp_json_detail = parse_json(resp_detail.text)
+                if not response_status(resp) or 'errorCode' in resp_json_detail:
+                    self.log_stream_error('获取订单详细信息失败')
+                    self.log_stream_error(resp_json_detail)
+                    return
+
+                addr_name = resp_json_detail['body']['progressList'][0]['content']
+                addr = resp_json_detail['body']['progressList'][0]['tip']
 
                 if not silent:
                     self.log_stream_info('======================================================订单信息==================================================================')
@@ -1802,13 +2276,259 @@ class JDSeckillService(object):
                 }
                 order_list.append(order_info)
 
-            if not exist_order:
-                self.log_stream_info('订单查询为空')
-            
             return order_list
         except Exception as e:
             logging.exception("error")
             self.log_stream_error(e)
+
+    # @fetch_latency
+    # def submit_order(self, is_multi_thread, ins, thread_index, is_fake=False):
+    #     """提交订单
+
+    #     重要：
+    #     1.该方法只适用于普通商品的提交订单（即可以加入购物车，然后结算提交订单的商品）
+    #     2.提交订单时，会对购物车中勾选✓的商品进行结算（如果勾选了多个商品，将会提交成一个订单）
+
+    #     :return: True/False 订单提交结果
+    #     """
+    #     url = 'https://trade.jd.com/shopping/order/submitOrder.action?&presaleStockSign=1'
+    #     # js function of submit order is included in https://trade.jd.com/shopping/misc/js/order.js?r=2018070403091
+
+    #     data = {
+    #         'overseaPurchaseCookies': '',
+    #         'vendorRemarks': '[]',
+    #         'submitOrderParam.sopNotPutInvoice': 'true',
+    #         'submitOrderParam.trackID': self.track_id,
+    #         'submitOrderParam.ignorePriceChange': 0,
+    #         'submitOrderParam.btSupport': 0,
+    #         'riskControl': self.risk_control,
+    #         'submitOrderParam.isBestCoupon': 1,
+    #         'submitOrderParam.jxj': 1,
+    #         'submitOrderParam.eid': self.eid,
+    #         'submitOrderParam.fp': self.fp,
+    #         'submitOrderParam.needCheck': 1,
+    #         'presaleStockSign': 1
+    #     }
+
+    #     if self.has_presale_product: 
+    #         data['submitOrderParam.presalePayType'] = 2
+    #         data['flowType'] = 15
+    #         data['preSalePaymentTypeInOptional'] = 2
+    #         data['submitOrderParam.payType4YuShou'] = 2
+
+    #     if self.has_oversea_product:
+    #         data['overseaMerge'] = 1
+
+    #     # add payment password when necessary
+    #     if self.payment_pwd:
+    #         data['submitOrderParam.payPassword'] = encrypt_payment_pwd(self.payment_pwd)
+
+    #     headers = {
+    #         'User-Agent': self.user_agent,
+    #         'Referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action?rid=' + str(int(time.time() * 1000)),
+    #         'Host': 'trade.jd.com',
+    #         'origin': 'https://trade.jd.com'
+    #     }
+
+    #     try:
+    #         should_stop = False
+    #         if is_multi_thread:
+    #             self.log_stream_info('线程[%s]开始提交订单',thread_index)
+
+    #         resp = self.sess.post(url=url, data=data, headers=headers)
+    #         resp_json = json.loads(resp.text)
+                
+    #         # 返回信息示例：
+    #         # 下单失败
+    #         # {'overSea': False, 'orderXml': None, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 60123, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': '请输入支付密码！'}
+    #         # {'overSea': False, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'orderXml': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 60017, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': '您多次提交过快，请稍后再试'}
+    #         # {'overSea': False, 'orderXml': None, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 60077, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': '获取用户订单信息失败'}
+    #         # {"cartXml":null,"noStockSkuIds":"xxx","reqInfo":null,"hasJxj":false,"addedServiceList":null,"overSea":false,"orderXml":null,"sign":null,"pin":"xxx","needCheckCode":false,"success":false,"resultCode":600157,"orderId":0,"submitSkuNum":0,"deductMoneyFlag":0,"goJumpOrderCenter":false,"payInfo":null,"scaleSkuInfoListVO":null,"purchaseSkuInfoListVO":null,"noSupportHomeServiceSkuList":null,"msgMobile":null,"addressVO":{"pin":"xxx","areaName":"","provinceId":xx,"cityId":xx,"countyId":xx,"townId":xx,"paymentId":0,"selected":false,"addressDetail":"xx","mobile":"xx","idCard":"","phone":null,"email":null,"selfPickMobile":null,"selfPickPhone":null,"provinceName":null,"cityName":null,"countyName":null,"townName":null,"giftSenderConsigneeName":null,"giftSenderConsigneeMobile":null,"gcLat":0.0,"gcLng":0.0,"coord_type":0,"longitude":0.0,"latitude":0.0,"selfPickOptimize":0,"consigneeId":0,"selectedAddressType":0,"siteType":0,"helpMessage":null,"tipInfo":null,"cabinetAvailable":true,"limitKeyword":0,"specialRemark":null,"siteProvinceId":0,"siteCityId":0,"siteCountyId":0,"siteTownId":0,"skuSupported":false,"addressSupported":0,"isCod":0,"consigneeName":null,"pickVOname":null,"shipmentType":0,"retTag":0,"tagSource":0,"userDefinedTag":null,"newProvinceId":0,"newCityId":0,"newCountyId":0,"newTownId":0,"newProvinceName":null,"newCityName":null,"newCountyName":null,"newTownName":null,"checkLevel":0,"optimizePickID":0,"pickType":0,"dataSign":0,"overseas":0,"areaCode":null,"nameCode":null,"appSelfPickAddress":0,"associatePickId":0,"associateAddressId":0,"appId":null,"encryptText":null,"certNum":null,"used":false,"oldAddress":false,"mapping":false,"addressType":0,"fullAddress":"xxxx","postCode":null,"addressDefault":false,"addressName":null,"selfPickAddressShuntFlag":0,"pickId":0,"pickName":null,"pickVOselected":false,"mapUrl":null,"branchId":0,"canSelected":false,"address":null,"name":"xxx","message":null,"id":0},"msgUuid":null,"message":"xxxxxx商品无货"}
+    #         # {'orderXml': None, 'overSea': False, 'noStockSkuIds': 'xxx', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'cartXml': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 600158, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': {'oldAddress': False, 'mapping': False, 'pin': 'xxx', 'areaName': '', 'provinceId': xx, 'cityId': xx, 'countyId': xx, 'townId': xx, 'paymentId': 0, 'selected': False, 'addressDetail': 'xxxx', 'mobile': 'xxxx', 'idCard': '', 'phone': None, 'email': None, 'selfPickMobile': None, 'selfPickPhone': None, 'provinceName': None, 'cityName': None, 'countyName': None, 'townName': None, 'giftSenderConsigneeName': None, 'giftSenderConsigneeMobile': None, 'gcLat': 0.0, 'gcLng': 0.0, 'coord_type': 0, 'longitude': 0.0, 'latitude': 0.0, 'selfPickOptimize': 0, 'consigneeId': 0, 'selectedAddressType': 0, 'newCityName': None, 'newCountyName': None, 'newTownName': None, 'checkLevel': 0, 'optimizePickID': 0, 'pickType': 0, 'dataSign': 0, 'overseas': 0, 'areaCode': None, 'nameCode': None, 'appSelfPickAddress': 0, 'associatePickId': 0, 'associateAddressId': 0, 'appId': None, 'encryptText': None, 'certNum': None, 'addressType': 0, 'fullAddress': 'xxxx', 'postCode': None, 'addressDefault': False, 'addressName': None, 'selfPickAddressShuntFlag': 0, 'pickId': 0, 'pickName': None, 'pickVOselected': False, 'mapUrl': None, 'branchId': 0, 'canSelected': False, 'siteType': 0, 'helpMessage': None, 'tipInfo': None, 'cabinetAvailable': True, 'limitKeyword': 0, 'specialRemark': None, 'siteProvinceId': 0, 'siteCityId': 0, 'siteCountyId': 0, 'siteTownId': 0, 'skuSupported': False, 'addressSupported': 0, 'isCod': 0, 'consigneeName': None, 'pickVOname': None, 'shipmentType': 0, 'retTag': 0, 'tagSource': 0, 'userDefinedTag': None, 'newProvinceId': 0, 'newCityId': 0, 'newCountyId': 0, 'newTownId': 0, 'newProvinceName': None, 'used': False, 'address': None, 'name': 'xx', 'message': None, 'id': 0}, 'msgUuid': None, 'message': 'xxxxxx商品无货'}
+    #         # 下单成功
+    #         # {'overSea': False, 'orderXml': None, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': True, 'resultCode': 0, 'orderId': 8740xxxxx, 'submitSkuNum': 1, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': None}
+
+    #         if resp_json.get('success'):
+    #             order_id = resp_json.get('orderId')
+    #             if is_multi_thread:
+    #                 self.log_stream_info('线程[%s]订单提交成功! 订单号：%s',thread_index, order_id)
+    #             else:
+    #                 self.log_stream_info('订单提交成功! 订单号：%s', order_id)
+    #             ins.order_id = order_id
+    #             return order_id
+    #         else:
+    #             message, result_code = resp_json.get('message'), resp_json.get('resultCode')
+    #             if is_multi_thread:
+    #                 self.log_stream_info('线程[%s]订单提交失败, 错误码：%s, 返回信息：%s', thread_index, result_code, message)
+    #             else:
+    #                 self.log_stream_info('订单提交失败, 错误码：%s, 返回信息：%s', result_code, message)
+    #                 if not self.failure_msg:
+    #                     self.failure_msg = message
+    #                     if '正在进行预约抢购活动，暂不支持购买' in message:
+    #                         self.log_stream_info('预约商品不支持移动端有货下单模式，切换到PC端')
+    #                         self.temp_order_traditional = True
+    #                     elif '抱歉，您当前选择的' in message or '当前选择的地区无法购买' in message:
+    #                         self.log_stream_info(message)
+    #                         should_stop = True
+    #                         if self.emailer:
+    #                             self.emailer.send(subject=message, content=message)
+    #                         raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+    #             return False
+    #     except Exception as e:
+    #         if not is_fake:
+    #             self.log_stream_error(e)
+    #             self.log_stream_error(resp.text)
+    #             logging.exception("error")
+    #             if should_stop:
+    #                 raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+    #         return False
+    #     finally:
+    #         if is_multi_thread:
+    #             ins.executed_thread_count = ins.executed_thread_count + 1
+
+    @fetch_latency
+    def cancel_select_red_packet(self):
+        url = 'https://api.m.jd.com/client.action'
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
+        }
+
+        body = json_to_str({
+            "tenantCode": "jgm",
+            "bizModelCode": "3",
+            "bizModeClientType": "M",
+            "externalLoginType": 1,
+            "selectRedPacket": False,
+            "packageStyle": True,
+            "sceneval": "2",
+            "balanceCommonOrderForm": {
+                "action": 1,
+                "overseaMerge": False,
+                "international": False,
+                "netBuySourceType": 0,
+                "appVersion": "1.3.0",
+                "supportTransport": False
+            }
+        })
+
+        data = {
+            'appid': 'm_core',
+            'functionId': 'balance_selectRedPacket_m',
+            'body': body
+        }
+
+        resp = self.sess.get(url, params=data, headers=headers)
+        try:
+            resp_text = resp.text
+            resp_json = parse_json(resp_text)
+            if not response_status(resp) or 'message' not in resp_json or resp_json['message'] != 'success' or 'code' not in resp_json or resp_json['code'] != '0' or 'body' not in resp_json or 'balanceAddress' not in resp_json['body']:
+                self.log_stream_error('反勾选红包失败')
+                return False
+            else:
+                return True
+        except Exception as e:
+            self.log_stream_error(e)
+            return False
+
+
+    @fetch_latency
+    def cancel_select_bean(self):
+        url = 'https://api.m.jd.com/client.action'
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
+        }
+
+        body = json_to_str({
+            "tenantCode": "jgm",
+            "bizModelCode": "3",
+            "bizModeClientType": "M",
+            "externalLoginType": 1,
+            "jdBeanNum": 0,
+            "packageStyle": True,
+            "sceneval": "2",
+            "balanceCommonOrderForm": {
+                "action": 1,
+                "overseaMerge": False,
+                "international": False,
+                "netBuySourceType": 0,
+                "appVersion": "1.3.0",
+                "supportTransport": False
+            }
+        })
+
+        
+
+        data = {
+            'appid': 'm_core',
+            'functionId': 'balance_useCancelEditJdBean_m',
+            'body': body
+        }
+
+        resp = self.sess.get(url, params=data, headers=headers)
+        try:
+            resp_text = resp.text
+            resp_json = parse_json(resp_text)
+            if not response_status(resp) or 'message' not in resp_json or resp_json['message'] != 'success' or 'code' not in resp_json or resp_json['code'] != '0' or 'body' not in resp_json or 'balanceAddress' not in resp_json['body']:
+                self.log_stream_error('反勾选京豆失败')
+                return False
+            else:
+                return True
+        except Exception as e:
+            self.log_stream_error(e)
+            return False
+
+    @fetch_latency
+    def update_target_addr(self):
+        url = 'https://api.m.jd.com/client.action'
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
+        }
+
+        body_param_template = Template(json_to_str({
+            "tenantCode": "jgm",
+            "bizModelCode": "3",
+            "bizModeClientType": "M",
+            "externalLoginType": 1,
+            "addressId": "$address_id",
+            "locationId": "$location_id",
+            "packageStyle": True,
+            "sceneval": "2",
+            "balanceCommonOrderForm": {
+                "action": 1,
+                "overseaMerge": False,
+                "international": False,
+                "netBuySourceType": 0,
+                "appVersion": "1.3.0",
+                "supportTransport": False
+            }
+        }))
+
+        
+
+        data = {
+            'appid': 'm_core',
+            'functionId': 'balance_saveConsigneeAddress_m',
+            'body': body_param_template.substitute(address_id=self.target_address_id, location_id = self.area_id)
+        }
+
+        resp = self.sess.get(url, params=data, headers=headers)
+        try:
+            resp_text = resp.text
+            resp_json = parse_json(resp_text)
+            if not response_status(resp) or 'message' not in resp_json or resp_json['message'] != 'success' or 'code' not in resp_json or resp_json['code'] != '0' or 'body' not in resp_json or 'balanceAddress' not in resp_json['body']:
+                self.log_stream_error('更改订单地址失败')
+                return False
+            else:
+                return True
+        except Exception as e:
+            self.log_stream_error(e)
+            return False
 
     @fetch_latency
     def submit_order(self, is_multi_thread, ins, thread_index, is_fake=False):
@@ -1820,43 +2540,330 @@ class JDSeckillService(object):
 
         :return: True/False 订单提交结果
         """
-        url = 'https://trade.jd.com/shopping/order/submitOrder.action?&presaleStockSign=1'
-        # js function of submit order is included in https://trade.jd.com/shopping/misc/js/order.js?r=2018070403091
+        
+        url = 'https://api.m.jd.com/client.action'
+
+
+        body_param_template = Template(json_to_str({
+            "deviceUUID": "$visit_key",
+            "uuid": "$visit_key",
+            "appId": "wxae3e8056daea8727",
+            "tenantCode": "jgm",
+            "bizModelCode": "3",
+            "bizModeClientType": "M",
+            "token": "3852b12f8c4d869b7ed3e2b3c68c9436",
+            "externalLoginType": 1,
+            "checkPayPassport": True,
+            "checkpwdV2": False,
+            "isEncryptionMobile": True,
+            "outStockVendorIdList": [],
+            "mainSkuIdList": [
+                "$sku_id"
+            ],
+            "balanceDataServerSkuVOList": [
+                {
+                "id": "$sku_id",
+                "jdPrice": "1.00",
+                "buyNum": 1,
+                "firstCategoryId": 9192,
+                "secondCategoryId": 9197,
+                "thirdCategoryId": 1509,
+                "promoId": 0,
+                "venderId": 10402860,
+                "type": 1
+                }
+            ],
+            "dsList": [
+                {
+                "paramName": "report_time",
+                "paramVal": ""
+                },
+                {
+                "paramName": "deal_id",
+                "paramVal": ""
+                },
+                {
+                "paramName": "buyer_uin"
+                },
+                {
+                "paramName": "pin",
+                "paramVal": ""
+                },
+                {
+                "paramName": "cookie_pprd_p"
+                },
+                {
+                "paramName": "cookie_pprd_s"
+                },
+                {
+                "paramName": "cookie_pprd_t"
+                },
+                {
+                "paramName": "ip",
+                "paramVal": ""
+                },
+                {
+                "paramName": "visitkey"
+                },
+                {
+                "paramName": "gen_entrance",
+                "paramVal": ""
+                },
+                {
+                "paramName": "deal_src",
+                "paramVal": "7"
+                },
+                {
+                "paramName": "item_type",
+                "paramVal": "1"
+                },
+                {
+                "paramName": "fav_unixtime",
+                "paramVal": ""
+                },
+                {
+                "paramName": "pay_type",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "ab_test",
+                "paramVal": ""
+                },
+                {
+                "paramName": "serilize_type",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "property1",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "property2",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "property3",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "property4",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "seller_uin",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "pp_item_id",
+                "paramVal": ""
+                },
+                {
+                "paramName": "openid"
+                },
+                {
+                "paramName": "orderprice",
+                "paramVal": ""
+                },
+                {
+                "paramName": "actiontype",
+                "paramVal": ""
+                },
+                {
+                "paramName": "extinfo",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext1",
+                "paramVal": "$sku_id"
+                },
+                {
+                "paramName": "ext2",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext3",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext4",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext5",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext6"
+                },
+                {
+                "paramName": "ext7",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext8",
+                "paramVal": "0"
+                },
+                {
+                "paramName": "ext9",
+                "paramVal": "0|0|0|0|0||0|0"
+                },
+                {
+                "paramName": "ext10",
+                "paramVal": "|||"
+                },
+                {
+                "paramName": "ext11",
+                "paramVal": "http://wq.jd.com/wxapp/pages/pay/index/index"
+                },
+                {
+                "paramName": "ext12",
+                "paramVal": "1"
+                },
+                {
+                "paramName": "ext13",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext14",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext15",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext16",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext17"
+                },
+                {
+                "paramName": "ext18"
+                },
+                {
+                "paramName": "ext19",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext20"
+                },
+                {
+                "paramName": "fpa"
+                },
+                {
+                "paramName": "fpb"
+                },
+                {
+                "paramName": "ext21",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext22",
+                "paramVal": ""
+                },
+                {
+                "paramName": "ext23",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext24",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext25",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext26",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext27",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext28",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext29",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext30",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext31",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext32",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext33",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext34",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext35",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext36",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext37",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "ext38",
+                "paramVal": "NULL"
+                },
+                {
+                "paramName": "dt",
+                "paramVal": ""
+                }
+            ],
+            "packageStyle": True,
+            "sceneval": "2",
+            "balanceCommonOrderForm": {
+                "action": 1,
+                "overseaMerge": False,
+                "international": False,
+                "netBuySourceType": 0,
+                "appVersion": "1.3.0",
+                "supportTransport": False
+            },
+            "balanceDeviceInfo": {
+                "resolution": "1920*513"
+            }
+        }))
+
+        # body = str_to_json(body_param_template.substitute(visit_key=self.visitKey, sku_id = self.target_sku_id))
+
+        # if self.payment_pwd:
+        #     body['checkpwdV2'] = True
+        #     body['userPayPWD'] = encrypt_payment_pwd(self.payment_pwd)
 
         data = {
-            'overseaPurchaseCookies': '',
-            'vendorRemarks': '[]',
-            'submitOrderParam.sopNotPutInvoice': 'true',
-            'submitOrderParam.trackID': self.track_id,
-            'submitOrderParam.ignorePriceChange': 0,
-            'submitOrderParam.btSupport': 0,
-            'riskControl': self.risk_control,
-            'submitOrderParam.isBestCoupon': 1,
-            'submitOrderParam.jxj': 1,
-            'submitOrderParam.eid': self.eid,
-            'submitOrderParam.fp': self.fp,
-            'submitOrderParam.needCheck': 1,
-            'presaleStockSign': 1
+            'functionId': 'balance_submitOrder_m',
+            'appid': 'm_core',
+            'body': body_param_template.substitute(visit_key=self.visitKey, sku_id = self.target_sku_id)
         }
 
-        if self.has_presale_product: 
-            data['submitOrderParam.presalePayType'] = 2
-            data['flowType'] = 15
-            data['preSalePaymentTypeInOptional'] = 2
-            data['submitOrderParam.payType4YuShou'] = 2
-
-        if self.has_oversea_product:
-            data['overseaMerge'] = 1
-
-        # add payment password when necessary
-        if self.payment_pwd:
-            data['submitOrderParam.payPassword'] = encrypt_payment_pwd(self.payment_pwd)
 
         headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action?rid=' + str(int(time.time() * 1000)),
-            'Host': 'trade.jd.com',
-            'origin': 'https://trade.jd.com'
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://wqs.jd.com/',
+            'origin': 'https://wqs.jd.com',
+            'content-type': 'application/x-www-form-urlencoded'
         }
 
         try:
@@ -1868,17 +2875,10 @@ class JDSeckillService(object):
             resp_json = json.loads(resp.text)
                 
             # 返回信息示例：
-            # 下单失败
-            # {'overSea': False, 'orderXml': None, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 60123, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': '请输入支付密码！'}
-            # {'overSea': False, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'orderXml': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 60017, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': '您多次提交过快，请稍后再试'}
-            # {'overSea': False, 'orderXml': None, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 60077, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': '获取用户订单信息失败'}
-            # {"cartXml":null,"noStockSkuIds":"xxx","reqInfo":null,"hasJxj":false,"addedServiceList":null,"overSea":false,"orderXml":null,"sign":null,"pin":"xxx","needCheckCode":false,"success":false,"resultCode":600157,"orderId":0,"submitSkuNum":0,"deductMoneyFlag":0,"goJumpOrderCenter":false,"payInfo":null,"scaleSkuInfoListVO":null,"purchaseSkuInfoListVO":null,"noSupportHomeServiceSkuList":null,"msgMobile":null,"addressVO":{"pin":"xxx","areaName":"","provinceId":xx,"cityId":xx,"countyId":xx,"townId":xx,"paymentId":0,"selected":false,"addressDetail":"xx","mobile":"xx","idCard":"","phone":null,"email":null,"selfPickMobile":null,"selfPickPhone":null,"provinceName":null,"cityName":null,"countyName":null,"townName":null,"giftSenderConsigneeName":null,"giftSenderConsigneeMobile":null,"gcLat":0.0,"gcLng":0.0,"coord_type":0,"longitude":0.0,"latitude":0.0,"selfPickOptimize":0,"consigneeId":0,"selectedAddressType":0,"siteType":0,"helpMessage":null,"tipInfo":null,"cabinetAvailable":true,"limitKeyword":0,"specialRemark":null,"siteProvinceId":0,"siteCityId":0,"siteCountyId":0,"siteTownId":0,"skuSupported":false,"addressSupported":0,"isCod":0,"consigneeName":null,"pickVOname":null,"shipmentType":0,"retTag":0,"tagSource":0,"userDefinedTag":null,"newProvinceId":0,"newCityId":0,"newCountyId":0,"newTownId":0,"newProvinceName":null,"newCityName":null,"newCountyName":null,"newTownName":null,"checkLevel":0,"optimizePickID":0,"pickType":0,"dataSign":0,"overseas":0,"areaCode":null,"nameCode":null,"appSelfPickAddress":0,"associatePickId":0,"associateAddressId":0,"appId":null,"encryptText":null,"certNum":null,"used":false,"oldAddress":false,"mapping":false,"addressType":0,"fullAddress":"xxxx","postCode":null,"addressDefault":false,"addressName":null,"selfPickAddressShuntFlag":0,"pickId":0,"pickName":null,"pickVOselected":false,"mapUrl":null,"branchId":0,"canSelected":false,"address":null,"name":"xxx","message":null,"id":0},"msgUuid":null,"message":"xxxxxx商品无货"}
-            # {'orderXml': None, 'overSea': False, 'noStockSkuIds': 'xxx', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'cartXml': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': False, 'resultCode': 600158, 'orderId': 0, 'submitSkuNum': 0, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': {'oldAddress': False, 'mapping': False, 'pin': 'xxx', 'areaName': '', 'provinceId': xx, 'cityId': xx, 'countyId': xx, 'townId': xx, 'paymentId': 0, 'selected': False, 'addressDetail': 'xxxx', 'mobile': 'xxxx', 'idCard': '', 'phone': None, 'email': None, 'selfPickMobile': None, 'selfPickPhone': None, 'provinceName': None, 'cityName': None, 'countyName': None, 'townName': None, 'giftSenderConsigneeName': None, 'giftSenderConsigneeMobile': None, 'gcLat': 0.0, 'gcLng': 0.0, 'coord_type': 0, 'longitude': 0.0, 'latitude': 0.0, 'selfPickOptimize': 0, 'consigneeId': 0, 'selectedAddressType': 0, 'newCityName': None, 'newCountyName': None, 'newTownName': None, 'checkLevel': 0, 'optimizePickID': 0, 'pickType': 0, 'dataSign': 0, 'overseas': 0, 'areaCode': None, 'nameCode': None, 'appSelfPickAddress': 0, 'associatePickId': 0, 'associateAddressId': 0, 'appId': None, 'encryptText': None, 'certNum': None, 'addressType': 0, 'fullAddress': 'xxxx', 'postCode': None, 'addressDefault': False, 'addressName': None, 'selfPickAddressShuntFlag': 0, 'pickId': 0, 'pickName': None, 'pickVOselected': False, 'mapUrl': None, 'branchId': 0, 'canSelected': False, 'siteType': 0, 'helpMessage': None, 'tipInfo': None, 'cabinetAvailable': True, 'limitKeyword': 0, 'specialRemark': None, 'siteProvinceId': 0, 'siteCityId': 0, 'siteCountyId': 0, 'siteTownId': 0, 'skuSupported': False, 'addressSupported': 0, 'isCod': 0, 'consigneeName': None, 'pickVOname': None, 'shipmentType': 0, 'retTag': 0, 'tagSource': 0, 'userDefinedTag': None, 'newProvinceId': 0, 'newCityId': 0, 'newCountyId': 0, 'newTownId': 0, 'newProvinceName': None, 'used': False, 'address': None, 'name': 'xx', 'message': None, 'id': 0}, 'msgUuid': None, 'message': 'xxxxxx商品无货'}
-            # 下单成功
-            # {'overSea': False, 'orderXml': None, 'cartXml': None, 'noStockSkuIds': '', 'reqInfo': None, 'hasJxj': False, 'addedServiceList': None, 'sign': None, 'pin': 'xxx', 'needCheckCode': False, 'success': True, 'resultCode': 0, 'orderId': 8740xxxxx, 'submitSkuNum': 1, 'deductMoneyFlag': 0, 'goJumpOrderCenter': False, 'payInfo': None, 'scaleSkuInfoListVO': None, 'purchaseSkuInfoListVO': None, 'noSupportHomeServiceSkuList': None, 'msgMobile': None, 'addressVO': None, 'msgUuid': None, 'message': None}
+            # {"body":{"appId":"wxae3e8056daea8727","order":{"orderId":243278018796,"orderPrice":"79.00","orderType":0}},"code":"0","message":"success","timestamp":1651487778538}
 
-            if resp_json.get('success'):
-                order_id = resp_json.get('orderId')
+            if resp_json.get('message') == 'success' and resp_json.get('code') == "0" and 'body' in resp_json and 'order' in resp_json['body']:
+                order_id = resp_json['body']['order']['orderId']
                 if is_multi_thread:
                     self.log_stream_info('线程[%s]订单提交成功! 订单号：%s',thread_index, order_id)
                 else:
@@ -1886,7 +2886,13 @@ class JDSeckillService(object):
                 ins.order_id = order_id
                 return order_id
             else:
-                message, result_code = resp_json.get('message'), resp_json.get('resultCode')
+                self.log_stream_error(resp.text)
+                message = ''
+                result_code = -1
+                if 'body' in resp_json:
+                    message, result_code = resp_json['body']['errorReason'], resp_json['body']['errorCode']
+                else:
+                    message, result_code = resp_json['echo'], resp_json['code']
                 if is_multi_thread:
                     self.log_stream_info('线程[%s]订单提交失败, 错误码：%s, 返回信息：%s', thread_index, result_code, message)
                 else:
@@ -1902,16 +2908,28 @@ class JDSeckillService(object):
                             if self.emailer:
                                 self.emailer.send(subject=message, content=message)
                             raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+                        elif str(result_code) == '60123':
+                            self.log_stream_info(message)
+                            should_stop = True
+                            if self.emailer:
+                                self.emailer.send(subject=message, content=message)
+                            raise RestfulException(error_dict['SERVICE']['JD']['INPUT_PWD'])
+                        elif str(result_code) == '60065':
+                            self.log_stream_info(message)
+                            should_stop = True
+                            if self.emailer:
+                                self.emailer.send(subject=message, content=message)
+                            raise RestfulException(error_dict['SERVICE']['JD']['WRONG_PWD'])
                 return False
         except Exception as e:
             if not is_fake:
                 self.log_stream_error(e)
-                self.log_stream_error(resp.text)
                 logging.exception("error")
                 if should_stop:
-                    raise RestfulException(error_dict['SERVICE']['JD']['ADDR_NO_STOCK'])
+                    raise e
             return False
         finally:
+            self.log_stream_info(resp.text)
             if is_multi_thread:
                 ins.executed_thread_count = ins.executed_thread_count + 1
             
@@ -2322,6 +3340,7 @@ class JDSeckillService(object):
 
         sku_name = soup.find('div', {'class': 'sku-name'}).text.strip()
         return sku_name
+        
 
     def get_item_info(self, sku_id):
         """获取商品名称
@@ -2597,31 +3616,35 @@ class JDSeckillService(object):
             self.log_stream_info('正在检查电脑端cookie有效性')
             self.nick_name = self.get_user_info()
             self.log_stream_info('电脑端cookie有效, 登录用户名:%s', self.nick_name)
+            self.is_pc_cookie_valid = True
         except Exception as e:
             # retry 
             try:
                 self.log_stream_info('上一次电脑端cookie测试失败，再次测试电脑端cookie测试有效性')
                 self.nick_name = self.get_user_info()
                 self.log_stream_info('电脑端cookie测试有效, 登录用户名:%s', self.nick_name)
+                self.is_pc_cookie_valid = True
             except Exception as e:
-                self.is_login = False
-                self.log_stream_error('测试电脑端cookie有效性失败：%s', str(e))
-                if not self.failure_msg:
-                        self.failure_msg = '重新扫码'
-                if self.emailer:
-                    self.emailer.send(subject='用户' + self.nick_name + '电脑端cookie测试有效性失败', content='请重新登录')
-                raise RestfulException(error_dict['SERVICE']['JD']['PC_NOT_LOGIN'])
+                self.log_stream_info('电脑端cookie无效')
+                self.is_pc_cookie_valid = False
+                # if not self.failure_msg:
+                #     self.failure_msg = '重新扫码'
+                # if self.emailer:
+                #     self.emailer.send(subject='用户' + self.nick_name + '电脑端cookie测试有效性失败', content='请重新登录')
+                # raise RestfulException(error_dict['SERVICE']['JD']['PC_NOT_LOGIN'])
 
         # 验证手机端cookie
         self.log_stream_info('正在检查移动端cookie有效性')
         mobile_nick_name = self.get_user_info_mobile()
         if mobile_nick_name:
             self.log_stream_info('移动端cookie有效')
+            self.nick_name = mobile_nick_name
         else:
             self.log_stream_info('上一次测试移动端cookie失败，再次测试移动端cookie有效性')
             mobile_nick_name = self.get_user_info_mobile()
             if mobile_nick_name:
                 self.log_stream_info('移动端cookie有效')
+                self.nick_name = mobile_nick_name
             else:
                 self.is_login = False
                 self.log_stream_error('测试移动端cookie有效性失败')
@@ -2985,103 +4008,186 @@ class JDSeckillService(object):
 
         return self.order_price_threshold
 
-    def pre_order_cart_action(self, is_before_start=False):
-        # 无法添加购物车商品，抢购开始后再次尝试添加
-        if not self.is_marathon_mode:
-            # 等待随机秒添加目标商品到购物车，避免购物车错误
-            if is_before_start:
-                random_wait = random.randint(0, 10)
-                self.log_stream_info('等待%s秒添加目标商品到购物车', random_wait)
-                time.sleep(random_wait)
-            is_select_cart = False
-            self.create_temp_order(is_select_cart=is_select_cart)
-            # if is_before_start:
-            #     # 使用优惠券
-            #     self.get_best_coupons()
-            #     # 提前刷新订单
-            #     self.get_order_coupons()
-        else:
-            self.log_stream_info('marathon抢购模式, 等待开始')
+    # @fetch_latency
+    # def create_temp_order_bp(self):
+    #     sleep_interval = 5
+    #     sku_id = self.target_sku_id
+    #     num = self.target_sku_num
 
+    #     url = 'https://wq.jd.com/deal/minfo/orderinfo'
+    #     headers = {
+    #         'User-Agent': self.mobile_user_agent,
+    #         'referer':'https://wqs.jd.com/'
+    #     }
+
+    #     payload = {
+    #         # 'appCode':'msc588d6d5',
+    #         'r':'0.6'+str(random.randint(100000000000000, 999999999999999)),
+    #         'action': 1,
+    #         'type': 0,
+    #         'useaddr': 0,
+    #         'addressid': '',
+    #         'dpid': '',
+    #         'addrType': 1,
+    #         'paytype': 0,
+    #         'firstin': 1,
+    #         'scan_orig': '',
+    #         'sceneval': 2,
+    #         'reg': 1,
+    #         'encryptversion': 1,
+    #         'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
+    #         'cmdyop': 0,
+    #         'locationid': self.area_id,
+    #         'clearbeancard': 1,
+    #         'wqref': 'https://item.m.jd.com/',
+    #         'jxsid': self.jxsid,
+    #         'g_tk': '5381',
+    #         'g_ty': 'ls'
+    #     }
+
+    #     resp = self.sess.get(url, params=payload, headers=headers)
+
+    #     try:
+    #         resp_json = parse_json(resp.text)
+    #         if not ('errId' in resp_json and resp_json['errId'] == '0'):
+    #             self.log_stream_error(resp_json)
+    #             self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
+    #             if not sleep_with_check(sleep_interval, self.execution_cache_key):
+    #                 self.execution_keep_running = False
+    #                 return False
+    #         return True
+    #     except Exception as e:
+    #         self.log_stream_error('发现异常，创建订单错误, resp: %s, exception: %s', resp.text, e)
+    #         if not sleep_with_check(sleep_interval, self.execution_cache_key):
+    #             self.execution_keep_running = False
+    #             return False
+    #         return False
+
+
+    @fetch_latency
     def create_temp_order_bp(self):
         sleep_interval = 2
-        sku_id = self.target_sku_id
-        num = self.target_sku_num
 
-        url = 'https://wq.jd.com/deal/minfo/orderinfo'
+        url = 'https://api.m.jd.com/client.action'
         headers = {
             'User-Agent': self.mobile_user_agent,
-            'referer':'https://wqs.jd.com/'
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com'
         }
 
-        payload = {
-            'action': 1,
-            'type': 0,
-            'useaddr': 0,
-            'addressid': '',
-            'dpid': '',
-            'addrType': 1,
-            'paytype': 0,
-            'firstin': 1,
-            'scan_orig': '',
-            'sceneval': 2,
-            'reg': 1,
-            'encryptversion': 1,
-            'commlist': '{},,{},{},1,0,0'.format(sku_id, num, sku_id),
-            'cmdyop': 0,
-            'locationid': self.area_id,
-            'clearbeancard': 1,
-            'wqref': ''
+        body_param_template = Template(json_to_str({
+            "deviceUUID": "$visit_key",
+            "uuid": "$visit_key",
+            "appId": "wxae3e8056daea8727",
+            "tenantCode": "jgm",
+            "bizModelCode": "3",
+            "bizModeClientType": "M",
+            "token": "3852b12f8c4d869b7ed3e2b3c68c9436",
+            "externalLoginType": 1,
+            "balanceCommonOrderForm": {
+                "action": 1,
+                "overseaMerge": False,
+                "international": False,
+                "netBuySourceType": 0,
+                "appVersion": "1.3.0",
+                "supportTransport": False
+            },
+            "resetGsd": True,
+            "useBestCoupon": "1",
+            "locationId": "$locationid",
+            "cartParam": {
+                "skuItem": {
+                "skuId": "$sku_id",
+                "num": "1"
+                }
+            },
+            "packageStyle": True,
+            "sceneval": "2",
+            "balanceDeviceInfo": {
+                "resolution": "1920*513"
+            }
+        }))
+
+        data = {
+            'appid': 'm_core',
+            'functionId': 'balance_getCurrentOrder_m',
+            'body': body_param_template.substitute(visit_key=self.visitKey, sku_id = self.target_sku_id, locationid = self.area_id)
         }
 
-        resp = self.sess.get(url, params=payload, headers=headers)
-
+        resp = self.sess.get(url, params=data, headers=headers)
         try:
-            resp_json = parse_json(resp.text)
-            if not ('errId' in resp_json and resp_json['errId'] == '0'):
+            resp_text = resp.text
+            resp_json = parse_json(resp_text)
+            if not response_status(resp) or 'message' not in resp_json or resp_json['message'] != 'success' or 'code' not in resp_json or resp_json['code'] != '0' or 'body' not in resp_json or 'balanceAddress' not in resp_json['body']:
+                self.log_stream_error(resp.text)
                 self.log_stream_info('创建订单错误，可能是刷新频率过高，休息%ss', sleep_interval)
-                time.sleep(sleep_interval)
-                return False
+                if not sleep_with_check(sleep_interval, self.execution_cache_key):
+                    self.execution_keep_running = False
+                    return False
+
+            price_resumed = float(resp_json['body']['balanceTotal']['factPrice']) > self.order_price_threshold
+            if price_resumed:
+                self.price_resumed = True
+                self.log_stream_info('购物车价格已恢复原价, 当前价格:%s, 下单价格阈值: %s', float(resp_json['body']['balanceTotal']['factPrice']), self.order_price_threshold) 
+
             return True
         except Exception as e:
             self.log_stream_error('发现异常，创建订单错误, resp: %s, exception: %s', resp.text, e)
-            time.sleep(sleep_interval)
+            if not sleep_with_check(sleep_interval, self.execution_cache_key):
+                self.execution_keep_running = False
+                return False
             return False
 
     @fetch_latency
     def create_temp_order_traditional(self, is_add_cart_item=False):
-        if is_add_cart_item:
-            self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
+        if self.is_pc_cookie_valid:
+            if is_add_cart_item:
+                self.add_item_to_cart_pc(self.target_sku_id, self.target_sku_num)
+            else:
+                # 选中购物车
+                self.select_all_cart_item_pc()
+            # 使用优惠券
+            self.get_best_coupons()
+            # 提前刷新订单
+            self.get_order_coupons()
+            # 保存默认地址
+            self.save_address()
         else:
-            # 选中购物车
-            self.select_all_cart_item()
-        # 使用优惠券
-        self.get_best_coupons()
-        # 提前刷新订单
-        self.get_order_coupons()
-        # 保存默认地址
-        self.save_address()
+            self.log_stream_error('PC cookie 无效，略过create_temp_order_traditional')
 
-    def create_temp_order(self, is_select_cart=True, is_add_cart_item=False):
+    def create_temp_order(self, is_add_cart_item=False):
         order_created = False
         if self.temp_order_traditional:
             self.create_temp_order_traditional(is_add_cart_item)
         while not order_created and self.create_order_error_count < 3:
            self.log_stream_info("第%s次通过BP链接创建订单", self.create_order_error_count + 1)
            order_created = self.create_temp_order_bp()
+           # 取消使用红包
+           self.cancel_select_red_packet()
+           # 取消使用京豆
+           self.cancel_select_bean()
+           # 更改订单地址
+           self.update_target_addr()
+           if not order_created:
+               self.log_stream_error('第%s次通过BP链接创建订单失败', self.create_order_error_count + 1)
+               if not self.execution_keep_running:
+                    self.create_order_error_count = 0
+                    return False
            self.create_order_error_count += 1
 
+        self.log_stream_info("BP链接创建订单成功")
+        # 重置错误计数
+        self.create_order_error_count = 0
+
         if not order_created:
-            self.log_stream_error('创建订单失败')
-            self.failure_msg = '创建订单失败'
-            raise RestfulException(error_dict['SERVICE']['JD']['ERROR_CREATE_ORDER'])
-        else:
-            # 重置错误计数
-            self.create_order_error_count = 0
+            self.log_stream_error('BP创建订单失败, 切换PC模式')
+            self.clear_cart()
+            self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
+            self.temp_order_traditional = True
         
 
         # if not self.temp_order_traditional and is_select_cart:
-        #     self.select_all_cart_item()
+        #     self.select_all_cart_item_pc()
         # self.create_order_error_count += 1
     
     def process_orders(self, order_id_list='', is_check_price=True, is_send_message=True):
@@ -3178,6 +4284,13 @@ class JDSeckillService(object):
 
         self.clear_cart()
 
+    def pre_order_cart_action(self, target_time=None, leading_in_sec=None, is_before_start=False):
+        # 无法添加购物车商品，抢购开始后再次尝试添加
+        if not self.is_marathon_mode:
+            self.create_temp_order()
+        else:
+            self.log_stream_info('marathon抢购模式, 等待开始')
+
     def actions_before_target_time(self, target_time):
 
         # 设置取消检查点
@@ -3195,10 +4308,22 @@ class JDSeckillService(object):
             return False
 
         # 开始前leading_in_sec再次检查是否为marathon模式
-        leading_in_sec = 120
+        leading_in_sec = 20 * 40
         sleep_interval = 1
         title = '抢购前[{0}]秒检查商品是否为marathon模式'.format(leading_in_sec)
         self.call_function_with_leading_time(title, sleep_interval, self.check_is_marathon_before_start, target_time, leading_in_sec)
+
+        # 设置取消检查点
+        if not self.execution_keep_running:
+            return False
+
+
+        # 开始前leading_in_sec# 购物车准备
+        leading_in_sec = 20 * 30
+        sleep_interval = 1
+        is_before_start = True
+        title = '抢购前[{0}]秒购物车准备'.format(leading_in_sec)
+        self.call_function_with_leading_time(title, sleep_interval, self.pre_order_cart_action, target_time, leading_in_sec, is_before_start)
 
         # 设置取消检查点
         if not self.execution_keep_running:
@@ -3233,14 +4358,6 @@ class JDSeckillService(object):
         if not self.execution_keep_running:
             return False
 
-        # 购物车准备
-        is_before_start = True
-        self.pre_order_cart_action(is_before_start)
-
-        # 设置取消检查点
-        if not self.execution_keep_running:
-            return False
-
         return adjusted_target_time
 
     def adjust_leading_time_once(self, adjusted_target_time):
@@ -3255,12 +4372,12 @@ class JDSeckillService(object):
 
     def actions_after_order_submit(self, order_id_list, target_time, t_order_start):
         
-        # 下单效率debug信息
-        try:
-            self.debug_after_order(target_time, t_order_start)
-        except Exception as e:
-            traceback.print_exc()
-            self.log_stream_error('获取debug服务器时间失败')
+        # # 下单效率debug信息
+        # try:
+        #     self.debug_after_order(target_time, t_order_start)
+        # except Exception as e:
+        #     traceback.print_exc()
+        #     self.log_stream_error('获取debug服务器时间失败')
 
         is_check_price = False # 继续下单模式会先取消订单
         is_send_message = True
@@ -3286,6 +4403,8 @@ class JDSeckillService(object):
             # 基本信息
             self.log_stream_info('运行在debug模式:%s', self.bool_map[str(self.is_debug_mode)])
 
+            self.get_item_from_page(sku_id)
+
             # 重置错误信息
             self.failure_msg = ""
             # 重置temp订单模式
@@ -3307,15 +4426,15 @@ class JDSeckillService(object):
             self.addr_obj = addr_obj
             self.default_addr = self.get_default_addr(addr_obj)
             self.is_multiple_addr = self.is_has_multiple_addr(self.default_addr)
-            self.area_id = self.get_area_id_by_default_addr(self.default_addr)
-            self.area_ref_id = self.get_area_ref_id_by_default_addr(self.default_addr)
+            self.area_id = self.get_area_id_by_default_addr(self.default_addr) # 1-72-55691-0
+            self.area_ref_id = self.get_area_ref_id_by_default_addr(self.default_addr) # addr id
             recipient_name = self.get_recipient_by_default_addr(self.default_addr)
             full_addr = self.get_full_addr_by_default_addr(self.default_addr)
-            self.log_stream_info('默认收件人:        %s', recipient_name)
-            self.log_stream_info('默认收件地址:      %s', full_addr)
+            self.log_stream_info('目标收件人:        %s', recipient_name)
+            self.log_stream_info('目标收件地址:      %s', full_addr)
 
             # 获取商品信息
-            item_info = self.get_item_detail_info(sku_id)
+            item_info = self.get_item_detail_info(sku_id, is_check_stock=not self.ignore_stock_check)
             item_info['count'] = num
             self.target_product = item_info
             self.target_sku_id = sku_id
@@ -3327,13 +4446,14 @@ class JDSeckillService(object):
             self.log_stream_info('=========================================================================')
 
             # 检查是否无货
-            if item_info['stock_info'] == '无货':
-                self.log_stream_error(item_info['sku_name'] + '在该地区无货')
-                if not self.failure_msg:
-                    self.failure_msg = item_info['sku_name'] + '在该地区无货'
-                if self.emailer:
-                    self.emailer.send(subject=item_info['sku_name'] + '在该地区无货', content=item_info['sku_name'] + '在该地区无货')
-                return False
+            if not self.ignore_stock_check:
+                if item_info['stock_info'] == '无货':
+                    self.log_stream_error(item_info['sku_name'] + '在该地区无货')
+                    if not self.failure_msg:
+                        self.failure_msg = item_info['sku_name'] + '在该地区无货'
+                    if self.emailer:
+                        self.emailer.send(subject=item_info['sku_name'] + '在该地区无货', content=item_info['sku_name'] + '在该地区无货')
+                    return False
             
             # 自动预约
             if item_info['is_reserve_product'] and item_info['reserve_info']['reserve_state_str'] == '正在预约':
@@ -3368,12 +4488,18 @@ class JDSeckillService(object):
             self.log_stream_info('重要：抢购结束前不要再添加任何商品到购物车, 目标商品会被自动添加')
 
             # 获取cookie用户信息
-            self.user_id, self.jxsid = self._get_user_info_from_cookie()
+            cookies = self._get_user_info_from_cookie()
+
+            # self.user_id = cookies['user-key']
+            self.jxsid = cookies['jxsid']
+            self.visitKey = cookies['visitkey']
 
             self.log_stream_info('==========================初始化抢购完毕=================================')
         except Exception as e:
             traceback.print_exc()
             self.log_stream_error('初始化秒杀失败')
+            self.log_stream_error(e)
+            self.failure_msg = str(e)
             self.execution_failure = True
             return False
 
@@ -3418,6 +4544,15 @@ class JDSeckillService(object):
 
             self.log_stream_info('===============================提交订单===================================')
 
+            # # 如果是PC模式 重新创建订单
+            # if self.temp_order_traditional:
+            #     time.sleep((int(self.order_leading_in_millis)-random.randint(10, 25))/1000)
+            #     self.create_temp_order_traditional()
+
+
+            # 更换为bp添加购物车方式，然后PC下单
+            # self.create_temp_order_bp()
+
             # 开始下单时间
             t_order_start = get_now_datetime()
 
@@ -3429,8 +4564,7 @@ class JDSeckillService(object):
                     submit_retry_count = 1
                     submit_interval = 0.1
                     is_multi_thread = False
-                    
-                    # order_id = ''
+
                     order_id = self.submit_order_with_retry(is_multi_thread, submit_retry_count, submit_interval)
 
                     if order_id:
@@ -3475,7 +4609,9 @@ class JDSeckillService(object):
             #     self.cancel_order(submitted_order_id)
         except Exception as e:
             self.log_stream_error('秒杀失败')
+            self.log_stream_error(e)
             traceback.print_exc()
+            self.failure_msg = str(e)
             self.execution_failure = True
             return []
 
@@ -3505,7 +4641,7 @@ class JDSeckillService(object):
                     break
                 else:
                     self.if_item_can_be_ordered(round=round, is_random_check_stock=True)
-                    self.select_all_cart_item()
+                    self.create_temp_order()
                     if self.price_resumed:
                         self.log_stream_info("商品%s已恢复非秒杀价，无需继续刷新，程序退出", self.target_sku_id)
                         return []
@@ -3784,15 +4920,17 @@ class JDSeckillService(object):
                 self.log_stream_error('获取缓存秒杀信息失败, exception: %s', e)
                 return False
 
-    def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time, force_run=False):
+    def execute_arrangement(self, execution_arrangement_array, login_username, nick_name, leading_time, address_id=None, ignore_stock_check=False, force_run=False):
         self.login_username = login_username
         self.nick_name = nick_name
+        self.target_address_id = address_id
 
         # steam message
         self.logger_stream = login_username + '_' + nick_name
         self.logger_group = login_username + '_' + nick_name
         self.logger_consumer = nick_name
         self.stream_enabled = True
+        self.ignore_stock_check = ignore_stock_check
 
         # 检查是否已有计划运行中
         if not force_run:
@@ -3997,6 +5135,7 @@ class JDSeckillService(object):
                 arrangement_cache_status_item = {
                     'nick_name': nick_name,
                     'leading_time': self.order_leading_in_millis,
+                    'address_id': self.target_address_id,
                     'seckill_arangement':[]
                 }
                 for arrangement_item in execution_arrangement_array:
@@ -4012,6 +5151,7 @@ class JDSeckillService(object):
                     arrangement_cache_status_item = {
                         'nick_name': nick_name,
                         'leading_time': self.order_leading_in_millis,
+                        'address_id': self.target_address_id,
                         'seckill_arangement':[]
                     }
                     for arrangement_item in execution_arrangement_array:
