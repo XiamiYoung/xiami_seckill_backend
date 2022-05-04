@@ -308,9 +308,10 @@ class JDController(JDBaseController):
         elif result and 'success' in result and not result['success']:
             resp_body_data = {
                                 'success': False,
-                                'smsUrl':result['smsUrl'],
                                 'error':result['msg']
                             }
+            if 'smsUrl' in result:
+                resp_body_data['smsUrl'] = result['smsUrl']
             resp_body['body'] = resp_body_data
             response = JsonResponse(resp_body)    
         else:

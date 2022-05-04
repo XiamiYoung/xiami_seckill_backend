@@ -611,7 +611,12 @@ class JDSeckillService(object):
 
             if 'data' not in resp_json or 'userInfo' not in resp_json['data']:
                 return False
-            return resp_json['data']['userInfo']['baseInfo']['nickname']
+            if 'nickname' in resp_json['data']['userInfo']['baseInfo'] and resp_json['data']['userInfo']['baseInfo']['nickname']:
+                return resp_json['data']['userInfo']['baseInfo']['nickname']
+            else:
+                self.log_stream_info(resp_json)
+                self.log_stream_error("用户没有nickname")
+                return resp_json['data']['userInfo']['baseInfo']['curPin']
         except Exception as e:
             return False
     
@@ -713,17 +718,25 @@ class JDSeckillService(object):
 
             retry_times = 200
 
+            scan_succeeded = False
+
             for _ in range(retry_times):
                 if self.cache_dao.get(mobile_qr_running_cache_key):
                     current_url = driver.current_url
+                    self.log_stream_info("current_url")
+                    self.log_stream_info(current_url)
+
+                    page_title = driver.title
+                    self.log_stream_info("page_title")
+                    self.log_stream_info(page_title)
+
                     if current_url.startswith('https://wqs.jd.com/') or current_url.startswith('https://m.jd.com/'):
+                        scan_succeeded = True
                         break
                     elif current_url.startswith('https://plogin.m.jd.com/'):
                         time.sleep(1)
 
                         input_retry_times = 50
-
-                        page_title = driver.title
 
                         if '联合登录' == page_title:
                             try:
@@ -784,8 +797,9 @@ class JDSeckillService(object):
                                         time.sleep(1)
                         elif '认证方式' == page_title:
 
-                            current_url = driver.current_url
-                            self.log_stream_info(current_url)
+                            pageSource = driver.page_source
+                            self.log_stream_info("pageSource")
+                            self.log_stream_info(pageSource)
 
                             # need mobile code
                             cache_value_dict = {
@@ -860,18 +874,21 @@ class JDSeckillService(object):
                                     else:
                                         time.sleep(1)
                                 else:
-                                    self.log_stream_info('手机短信验证码输入已取消')
+                                    self.log_stream_info('没有检测到输入验证码，手机短信验证码输入已取消')
                                     return False
                             else:
-                                self.log_stream_info('手机短信验证码输入已取消')
+                                self.log_stream_info('循环已结束，手机短信验证码输入已取消')
                                 return False
                     time.sleep(1)
                 else:
                     self.log_stream_info('QQ扫码已取消')
                     return False
-            else:
+                    
+            if not scan_succeeded:
                 self.log_stream_info('QQ扫码已取消')
                 return False
+            else:
+                self.log_stream_info('尝试登录')
 
             driver.get('https://home.m.jd.com/myJd/newhome.action')
 
@@ -888,7 +905,7 @@ class JDSeckillService(object):
             
             mobile_nick_name = self.get_user_info_mobile()
 
-            if mobile_nick_name:
+            if mobile_nick_name != None:
                 self.log_stream_info("移动端登录成功:%s", mobile_nick_name)
                 jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, nick_name, is_mask_jd_pwd=True)
 
@@ -1905,7 +1922,7 @@ class JDSeckillService(object):
 
     def get_default_addr_pc(self, addr_json):
         for item in addr_json:
-            if self.target_address_id:
+            if hasattr(self, 'target_address_id'):
                 if item['id'] == self.target_address_id:
                     return item
             else:
