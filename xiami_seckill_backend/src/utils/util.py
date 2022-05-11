@@ -11,6 +11,7 @@ import random
 import math
 import time
 import psutil
+from urllib.parse import unquote
 from functools import wraps
 from itertools import chain
 from datetime import datetime
@@ -395,3 +396,10 @@ def reboot_server():
 
 def get_server_uptime():
     return round((time.time() - psutil.boot_time())/60/60, 2)
+
+def url_decode(str):
+    return unquote(str)
+
+def unicode_decode(str):
+    bytes = str.encode('utf-8')
+    return bytes.decode('utf-8')
