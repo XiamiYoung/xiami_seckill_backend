@@ -1509,7 +1509,7 @@ class JDSeckillService(object):
         return response_status(resp)
 
     @fetch_latency
-    def select_all_cart_item_pc(self, is_multi_thread=False, check_price=False):
+    def select_all_cart_item_pc(self, is_multi_thread=False, check_price=False, add_cart_when_cant_be_selected=True):
         try:
             url = "https://api.m.jd.com/api?functionId=pcCart_jc_cartCheckAll"
 
@@ -1533,9 +1533,12 @@ class JDSeckillService(object):
                 return False
             else:
                 if 'resultData' not in resp_text or not resp_text['resultData']['cartInfo'] or resp_text['resultData']['cartInfo']['checkedWareNum'] == 0:
-                    self.log_stream_info('购物车商品已被删除，重新添加')
-                    added = self.create_temp_order_traditional(is_add_cart_item=True, check_price=False)
-                    return added
+                    if add_cart_when_cant_be_selected:
+                        self.log_stream_info('购物车商品已被删除，重新添加')
+                        added = self.create_temp_order_traditional(is_add_cart_item=True, check_price=False)
+                        return added
+                    else:
+                        return False
                 else:
                     self.is_ready_place_order =  resp_text['resultData']['cartInfo']['checkedWareNum'] ==  resp_text['resultData']['cartInfo']['cartNum']
                     if self.is_ready_place_order:
@@ -4281,12 +4284,14 @@ class JDSeckillService(object):
                 cart_selected = False
                 cart_select_error_count = 0
                 while not cart_selected and cart_select_error_count < 3:
-                    cart_selected = self.select_all_cart_item_pc(check_price=check_price)
+                    cart_selected = self.select_all_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
                     if not cart_selected:
                         cart_select_error_count = cart_select_error_count + 1
                 succeed = cart_selected
-            # # 使用优惠券
-            # self.get_best_coupons()
+            
+            if self.remaining_delivery_coupon and self.remaining_delivery_coupon > 0:
+                # 使用优惠券
+                self.get_best_coupons()
             # 保存默认地址
             self.save_order_address()
             return succeed
@@ -4634,11 +4639,12 @@ class JDSeckillService(object):
 
             # 检查是否有预约商品
             self.has_reserve_product = contains_reserve_product(self.target_product)
-
             # 检查是否有预售商品
             self.has_presale_product = contains_presale_product(self.target_product)
             # 检查是否全部为京东配送
             self.is_all_jd_delivery = is_all_jd_delivery(self.target_product)
+            # 检查用户运费券
+            self.remaining_delivery_coupon = self.get_user_delivery_coupon()
 
             self.order_price_threshold = 0
             self.log_stream_info('下单价格阈值           %s元', self.get_target_product_price_threshold())
