@@ -183,6 +183,26 @@ error_dict = {
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "016",
                 'httpCode': HTTP_CODE_500,
                 'msg': '优惠券获取失败'
+            },
+            'GET_RANDOM_SKU_FAILURE':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "017",
+                'httpCode': HTTP_CODE_500,
+                'msg': '获取随机商品信息失败'
+            },
+            'GET_RANDOM_SKU_STORE_INFO_FAILURE':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "018",
+                'httpCode': HTTP_CODE_500,
+                'msg': '查询列表库存信息发生异常'
+            },
+            'FILTER_RANDOM_SKU_FAILURE':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "019",
+                'httpCode': HTTP_CODE_500,
+                'msg': '过滤随机商品信息失败'
+            },
+            'SYNC_RANDOM_SKU_FAILURE':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "020",
+                'httpCode': HTTP_CODE_500,
+                'msg': '同步订单信息失败'
             }
         }
     }

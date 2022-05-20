@@ -62,6 +62,8 @@ LOCK_KEY_SECKILL_ARRANGEMENT = 'user_arrangement_lock_key'
 LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT = 'user_cencel_arrangement_lock_key'
 LOCK_KEY_CUSTOM_SKU_DATA = 'user_custom_sku_data_lock_key'
 LOCK_KEY_ADJUST_SERVER_TIME = 'adjust_server_time_lock_key'
+LOCK_KEY_RANDOM_SKU_LIST = 'random_sku_list'
+LOCK_KEY_RANDOM_SKU_STORE = 'random_sku_stock'
 
 # JD constants
 JD_PC_COOKIE_NAME = "jd-pc-cookies"
@@ -81,8 +83,7 @@ DEFAULT_TIMEOUT = 1
 # User Agent
 DEFAULT_MOBILE_USER_AGENT = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.85 Mobile Safari/537.36'
 # DEFAULT_PC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko'
-# DEFAULT_PC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.64 Safari/537.36 Edg/101.0.1210.47'
-DEFAULT_PC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36'
+DEFAULT_PC_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.64 Safari/537.36 Edg/101.0.1210.47'
 
 # Execution status
 ARRANGEMENT_EXEC_STATUS_PLANNED = 'planned'
@@ -91,3 +92,6 @@ ARRANGEMENT_EXEC_STATUS_CANCELLED = 'cancelled'
 ARRANGEMENT_EXEC_STATUS_SUCCEEDED = 'succeeded'
 ARRANGEMENT_EXEC_STATUS_FAILED = 'failed'
 ARRANGEMENT_EXEC_STATUS_ERROR = 'error'
+
+# 随机商品过滤关键字
+RANDOM_SKU_FILTER_OUT_LIST = ['胶水', '尺']

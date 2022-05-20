@@ -257,7 +257,7 @@ def fetch_latency(func):
 
 def get_random_useragent():
     software_names = [SoftwareName.CHROME.value]
-    operating_systems = [OperatingSystem.WINDOWS.value, OperatingSystem.LINUX.value]   
+    operating_systems = [OperatingSystem.WINDOWS.value]   
     user_agent_rotator = UserAgent(software_names=software_names, operating_systems=operating_systems, limit=100)
 
     # Get Random User Agent String.
@@ -410,3 +410,13 @@ def execute_in_thread(func, args, delay=0):
     # t = threading.Thread(target=func, args=args)
     t.daemon = True
     t.start()
+
+def list_item_not_in_str(keyword_list, to_check_str):
+    if not keyword_list or len(keyword_list) == 0:
+        return True
+    else:
+        for keyword in keyword_list:
+            if keyword in to_check_str:
+                return False
+    
+    return True

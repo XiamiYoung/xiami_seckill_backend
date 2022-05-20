@@ -50,7 +50,10 @@ from config.constants import (
     SECKILL_INFO_CACHE_KEY,
     LOCK_KEY_SECKILL_ARRANGEMENT,
     LOCK_KEY_CANCEL_SECKILL_ARRANGEMENT,
-    LOCK_KEY_ADJUST_SERVER_TIME
+    LOCK_KEY_ADJUST_SERVER_TIME,
+    LOCK_KEY_RANDOM_SKU_LIST,
+    LOCK_KEY_RANDOM_SKU_STORE,
+    RANDOM_SKU_FILTER_OUT_LIST
 )
 from utils.util import (
     fetch_latency,
@@ -87,7 +90,8 @@ from utils.util import (
     get_timestamp_in_milli_sec,
     build_item_info,
     unicode_decode,
-    execute_in_thread
+    execute_in_thread,
+    list_item_not_in_str
 )
 
 from utils.token_util import (
@@ -97,8 +101,8 @@ from utils.token_util import (
 class JDSeckillService(object):
 
     def __init__(self, login_username=''):
-        # self.user_agent = get_random_useragent()
-        self.user_agent = DEFAULT_PC_USER_AGENT
+        self.user_agent = get_random_useragent()
+        # self.user_agent = DEFAULT_PC_USER_AGENT
         self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
         self.try_post_failure_in_mins = float(global_config.get('config', 'try_post_failure_in_mins'))
         self.try_post_failure_count = int(global_config.get('config', 'try_post_failure_count'))
@@ -1131,6 +1135,54 @@ class JDSeckillService(object):
         except Exception as e:
             self.log_stream_error('查询 %s 库存信息发生异常, resp: %s, exception: %s', sku_id, resp_text, e)
             raise RestfulException(error_dict['SERVICE']['JD']['STOCK_API_LIMITED'])
+
+    def get_list_item_stock(self, sku_list, num_list):
+        self.log_stream_info('查询列表库存')
+
+        url = 'https://api.m.jd.com/api'
+
+        body_in_payload = {
+            "tenantCode": "jgm",
+            "bizModelCode": 5,
+            "bizModeClientType": "M",
+            "externalLoginType": 1,
+            "callback": "reaStockAnPriceCb",
+            "command": "3",
+            "source": "wqm_search",
+            "priceinfo": "1",
+            "buynums": ','.join(num_list),
+            "skus": ','.join(sku_list),
+            "area": self.area_id,
+            "debug": "yes"
+        }
+
+        payload = {
+            'body':json_to_str(body_in_payload),
+            'functionId':'te_m_searchStockPrice',
+            'appid':'jd-cphdeveloper-m'
+        }
+
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://sou.m.jd.com/',
+        }
+        
+        resp_text = ''
+        try:
+            resp_text = self.sess.get(url=url, params=payload, headers=headers).text
+            resp_json = parse_json(resp_text)
+            if 'errcode' in resp_json and resp_json['errcode'] == '0' and 'stockstate' in resp_json:
+                return resp_json
+            else:
+                self.log_stream_error('查询列表%s库存信息发生异常, resp: %s', str(sku_list), resp_text)
+                self.system_emailer.send(subject='查询列表库存信息发生异常', content='查询列表库存信息发生异常')
+                raise RestfulException(error_dict['SERVICE']['JD']['GET_RANDOM_SKU_STORE_INFO_FAILURE'])
+        except Exception as e:
+            traceback.print_exc()
+            self.log_stream_error('查询列表%s库存信息发生异常, resp: %s, exception: %s', str(sku_list), resp_text, e)
+            self.log_stream_error(resp_text)
+            self.system_emailer.send(subject='查询列表库存信息发生异常', content='查询列表库存信息发生异常')
+            raise RestfulException(error_dict['SERVICE']['JD']['GET_RANDOM_SKU_STORE_INFO_FAILURE'])
 
     def _if_item_removed(self, sku_id):
         """判断商品是否下架
@@ -4495,7 +4547,7 @@ class JDSeckillService(object):
                     self.cart_selected = False
                     cart_select_error_count = 0
                     # self.unselect_all_cart_item_pc()
-                    while not self.cart_selected and cart_select_error_count < 3:
+                    while not self.cart_selected and cart_select_error_count < 5:
                         self.select_single_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
                         if not self.cart_selected:
                             cart_select_error_count = cart_select_error_count + 1
@@ -4666,34 +4718,108 @@ class JDSeckillService(object):
         self.clear_cart()
 
     @fetch_latency
-    def sync_order_setting(self):
+    def get_random_item_mobile(self):
+        url = 'https://api.m.jd.com/api'
+
+        body_in_payload = {
+            "key": "文具",
+            "datatype": "1",
+            "callback": "jdSearchResultBkCb",
+            "page": "1",
+            "pagesize": "30",
+            "ext_attr": "no",
+            "brand_col": "no",
+            "price_col": "no",
+            "color_col": "no",
+            "size_col": "no",
+            "ext_attr_sort": "no",
+            "merge_sku": "yes",
+            "multi_suppliers": "yes",
+            "filt_type": "col_type,L0M0;redisstore,1;",
+            "sort_type": "sort_dredisprice_asc",
+            "qp_disable": "no",
+            "debug": "yes",
+            "externalLoginType": 1
+        }
+
+        payload = {
+            'body':json_to_str(body_in_payload),
+            'functionId':'searchKeyword',
+            'appid':'jd-cphdeveloper-m'
+        }
+
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'Referer': 'https://sou.m.jd.com/',
+        }
+        
+        resp_text = ''
         try:
-            url = 'https://search.jd.com/s_new.php?keyword=%E6%96%87%E5%85%B7&qrst=1&psort=2&wq=%E6%96%87%E5%85%B7&stock=1&psort=2&shop=1&click=2&cs=y'
-            headers = {
-                'User-Agent': self.user_agent
-            }
-            resp = self.sess.get(url=url, headers=headers)
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            goods_list = soup.find('div', {'id': 'J_goodsList'})
-            li_elements = goods_list.findChildren("li" , recursive=True)
-
-            sku_list = []
-            loop_index = 0
-            
-            while loop_index < len(li_elements):
-                add_cart_btn_value = li_elements[loop_index].findChildren("a", {'class': 'p-o-btn addcart'} , recursive=True)[0].get_text()
-                if '加入购物车' in add_cart_btn_value:
-                    item_item_sku = li_elements[loop_index]['data-sku']
-                    sku_list.append(item_item_sku)
-                loop_index = loop_index + 1
-
-            if len(sku_list)>0:
-                random_item_sku = sku_list[random.randint(0, len(sku_list)-1)]
+            resp_text = self.sess.get(url=url, params=payload, headers=headers).text
+            resp_json = parse_json(parse_callback_str(resp_text))
+            if 'retcode' in resp_json and resp_json['retcode'] == '0' and 'errmsg' in resp_json and not resp_json['errmsg']:
+                return resp_json
             else:
-                random_item_sku = li_elements[0]['data-sku']
+                self.log_stream_error('获取随机商品信息失败')
+                self.system_emailer.send(subject='获取随机商品信息失败', content='获取随机商品信息失败')
+                raise RestfulException(error_dict['SERVICE']['JD']['GET_RANDOM_SKU_FAILURE'])
+        except Exception as e:
+            traceback.print_exc()
+            self.log_stream_error('获取随机商品信息失败')
+            self.log_stream_error(resp_text)
+            self.system_emailer.send(subject='获取随机商品信息失败', content='获取随机商品信息失败')
+            raise RestfulException(error_dict['SERVICE']['JD']['GET_RANDOM_SKU_FAILURE'])
 
-            self.log_stream_info('同步订单设置商品: %s', str(random_item_sku))
+
+    @fetch_latency
+    def sync_order_setting(self):
+        random_sku_search_result = None
+        random_sku_stock_result = None
+        try:
+            random_sku_search_result_in_cache = self.get_random_sku_list_from_cache()
+            if not random_sku_search_result_in_cache:
+                self.log_stream_info('获取随机商品')
+                random_sku_search_result = self.get_random_item_mobile()
+                self.put_random_sku_result_in_cache(random_sku_search_result, 'finished')
+            else:
+                random_sku_search_result = random_sku_search_result_in_cache
+                self.log_stream_info('忽略获取随机商品, 使用缓存结果')
+            
+            random_sku_list = random_sku_search_result['data']['searchm']['Paragraph']
+
+            # 检查 自营 and 可以购买一件 and 没有库存预警提示
+            sku_list = []
+            num_list = []
+            for sku_item in random_sku_list:
+                if int(sku_item['lowestbuy']) < 2 and '自营' in sku_item['shop_name'] and list_item_not_in_str(RANDOM_SKU_FILTER_OUT_LIST, sku_item['Content']['warename']):
+                    self.log_stream_info(sku_item['Content']['warename'])
+                    sku_list.append(sku_item['wareid'])
+                    num_list.append(str(1))
+
+            # 检查库存
+            random_sku_stock_result_in_cache = self.get_random_sku_store_result_from_cache()
+            if not random_sku_stock_result_in_cache:
+                self.log_stream_info('获取随机商品库存')
+                random_sku_stock_result= self.get_list_item_stock(sku_list, num_list)
+                self.put_random_sku_stock_result_in_cache(random_sku_stock_result, 'finished')
+            else:
+                random_sku_stock_result = random_sku_stock_result_in_cache
+                self.log_stream_info('忽略获取随机商品库存, 使用缓存结果')
+
+            # 过滤库存结果   
+            for sku_id in random_sku_stock_result['stockstate']['data']:
+                if random_sku_stock_result['stockstate']['data'][sku_id]['a'] != "33" and random_sku_stock_result['stockstate']['data'][sku_id]['c'] != "-1":
+                    sku_list.remove(sku_id)
+
+            if len(sku_list) > 0:
+                random_item_sku = sku_list[random.randint(0, len(sku_list)-1)]
+                self.log_stream_info('同步订单设置商品: %s', str(random_item_sku))
+            else:
+                self.log_stream_info('没有可用的随机商品: %s', str(sku_list))
+                self.system_emailer.send(subject='没有可用的随机商品', content='没有可用的随机商品')
+                raise RestfulException(error_dict['SERVICE']['JD']['FILTER_RANDOM_SKU_FAILURE'])
+
+            self.log_stream_info('可用的随机商品: %s', str(sku_list))
 
             self.add_item_to_cart(random_item_sku, 1)
             self.get_checkout_page_detail(fast_mode=False)
@@ -4704,9 +4830,12 @@ class JDSeckillService(object):
                 self.clear_cart()
 
             self.log_stream_info('同步订单设置结束')
-
         except Exception as e:
+            traceback.print_exc()
             self.log_stream_error('sync_order_setting失败')
+            self.log_stream_error(e)
+            self.system_emailer.send(subject='同步订单信息失败', content='同步订单信息失败')
+            raise RestfulException(error_dict['SERVICE']['JD']['SYNC_RANDOM_SKU_FAILURE'])
 
     def pre_order_cart_action(self, target_time=None, leading_in_sec=None, is_before_start=False):
         if self.is_pc_cookie_valid:
@@ -4829,6 +4958,9 @@ class JDSeckillService(object):
     def prepare_on_init(self, target_time, sku_id, num):
         try:
             self.log_stream_info('==========================初始化抢购程序=================================')
+
+            self.log_stream_info('使用user agent')
+            self.log_stream_info(self.user_agent)
 
             self.temp_order_pc_delay = int(global_config.get('config', 'temp_order_pc_delay'))
             self.submit_order_pc_delay = int(global_config.get('config', 'submit_order_pc_delay'))
@@ -5777,6 +5909,126 @@ class JDSeckillService(object):
                 'adjusted_server_time': adjusted_server_time
             }
             self.cache_dao.put(adjust_server_time_cache_key, json_obj, DEFAULT_CACHE_TTL)
+        finally:
+            if lock and lock.locked():
+                lock.release()
+
+    def get_random_sku_list_from_cache(self):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_RANDOM_SKU_LIST)
+        
+        try:
+            while not lock.acquire(blocking=False):
+                time.sleep(0.05)
+
+            random_sku_list_cache_key = LOCK_KEY_RANDOM_SKU_LIST
+            json_obj = self.cache_dao.get(random_sku_list_cache_key)
+
+            # 等待线程初始化完毕
+            time.sleep(1)
+
+            # 没有缓存，初始化
+            if not json_obj:
+                json_obj = {
+                    'status': 'running',
+                    'random_sku_result': {}
+                }
+                self.cache_dao.put(random_sku_list_cache_key, json_obj, DEFAULT_CACHE_TTL)
+                return None
+            
+            # 发现缓存，正在运行中， 等待
+            elif json_obj['status'] == 'running':
+                # 释放缓存锁，允许其他线程检查或更新时间
+                if lock.locked():
+                    lock.release()
+                time.sleep(3)
+                json_obj = self.cache_dao.get(random_sku_list_cache_key)
+                if json_obj['status'] == 'finished':
+                    return json_obj['random_sku_result']
+                else:
+                    return None
+            # 发现缓存，已计算完毕，直接返回
+            else:
+                return json_obj['random_sku_result']
+        finally:
+                try:
+                    if lock and lock.locked():
+                        lock.release()
+                except Exception as e:
+                    pass
+    
+    def put_random_sku_result_in_cache(self, random_sku_result, status):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_RANDOM_SKU_LIST)
+        
+        try:
+            while not lock.acquire(blocking=False):
+                time.sleep(0.05)
+
+            random_sku_list_cache_key = LOCK_KEY_RANDOM_SKU_LIST 
+            json_obj = {
+                'status': status,
+                'random_sku_result': random_sku_result
+            }
+            self.cache_dao.put(random_sku_list_cache_key, json_obj, DEFAULT_CACHE_TTL)
+        finally:
+            if lock and lock.locked():
+                lock.release()
+
+    def get_random_sku_store_result_from_cache(self):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_RANDOM_SKU_STORE)
+        
+        try:
+            while not lock.acquire(blocking=False):
+                time.sleep(0.05)
+
+            random_sku_stock_cache_key = LOCK_KEY_RANDOM_SKU_STORE
+            json_obj = self.cache_dao.get(random_sku_stock_cache_key)
+
+            # 等待线程初始化完毕
+            time.sleep(1)
+
+            # 没有缓存，初始化
+            if not json_obj:
+                json_obj = {
+                    'status': 'running',
+                    'random_sku_stock': {}
+                }
+                self.cache_dao.put(random_sku_stock_cache_key, json_obj, DEFAULT_CACHE_TTL)
+                return None
+            
+            # 发现缓存，正在运行中， 等待
+            elif json_obj['status'] == 'running':
+                # 释放缓存锁，允许其他线程检查或更新时间
+                if lock.locked():
+                    lock.release()
+                time.sleep(3)
+                json_obj = self.cache_dao.get(random_sku_stock_cache_key)
+                if json_obj['status'] == 'finished':
+                    return json_obj['random_sku_stock']
+                else:
+                    return None
+            # 发现缓存，已计算完毕，直接返回
+            else:
+                return json_obj['random_sku_stock']
+        finally:
+                try:
+                    if lock and lock.locked():
+                        lock.release()
+                except Exception as e:
+                    pass
+    
+    def put_random_sku_stock_result_in_cache(self, random_sku_stock_result, status):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_RANDOM_SKU_STORE)
+        
+        try:
+            while not lock.acquire(blocking=False):
+                time.sleep(0.05)
+
+            random_sku_stock_cache_key = LOCK_KEY_RANDOM_SKU_STORE 
+            json_obj = {
+                'status': status,
+                'random_sku_stock': random_sku_stock_result
+            }
+            self.cache_dao.put(random_sku_stock_cache_key, json_obj, DEFAULT_CACHE_TTL)
         finally:
             if lock and lock.locked():
                 lock.release()
