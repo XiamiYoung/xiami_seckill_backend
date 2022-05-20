@@ -86,7 +86,8 @@ from utils.util import (
     build_stream_message,
     get_timestamp_in_milli_sec,
     build_item_info,
-    unicode_decode
+    unicode_decode,
+    execute_in_thread
 )
 
 from utils.token_util import (
@@ -141,6 +142,12 @@ class JDSeckillService(object):
         self.logger_consumer = ''
         self.stream_enabled = False
         self.temp_order_traditional = False
+        self.best_coupon_request_done  = False
+        self.order_address_request_done = False
+        self.get_coupons_request_done = False
+        self.save_invoice_done = False
+        self.submit_order_done = False
+        self.jd_product = False
         self.login_username = ''
         self.payment_pwd = ''
 
@@ -157,6 +164,7 @@ class JDSeckillService(object):
         self.seckill_url = dict()
         self.target_product = {}	
         self.target_sku_id = ''	
+        self.target_sku_uuid = ''	
         self.target_sku_num = 1
         self.failure_msg = ''
 
@@ -503,21 +511,30 @@ class JDSeckillService(object):
             'Referer': 'https://wqs.jd.com/',
         }
 
-        resp = self.sess.get(url=url, headers=headers, params=payload)
-        resp_json = parse_json(parse_callback_str(resp.text))
+        try:
+            resp = self.sess.get(url=url, headers=headers, params=payload)
+            resp_json = parse_json(parse_callback_str(resp.text))
 
-        if 'list' in resp_json and len(resp_json['list']) > 0:
-            result_list = resp_json['list']
-            sku_item_resp = result_list[0]
-            reply_code = sku_item_resp['replyCode']
-            if reply_code == '6' or reply_code == '9':
-                # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
-                self.log_stream_info(sku_item_resp['replyMsg'])
-                return True 
-            elif reply_code == '0':
-                # 预约失败，请稍后重试, 一般出现于预约时间未开始/结束/非预约商品
-                self.log_stream_info('商品已过预约期，继续下单')
-                return True 
+            if 'list' in resp_json and len(resp_json['list']) > 0:
+                result_list = resp_json['list']
+                sku_item_resp = result_list[0]
+                reply_code = sku_item_resp['replyCode']
+                if reply_code == '6' or reply_code == '9':
+                    # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
+                    self.log_stream_info(sku_item_resp['replyMsg'])
+                    return True 
+                elif reply_code == '0':
+                    # 预约失败，请稍后重试, 一般出现于预约时间未开始/结束/非预约商品
+                    self.log_stream_info('商品已过预约期，继续下单')
+                    return True 
+                else:
+                    self.log_stream_info("商品预约失败")
+                    self.log_stream_info(json_to_str(resp_json))
+                    if not self.failure_msg:
+                        self.failure_msg = '商品预约失败'
+                        if self.emailer:
+                            self.emailer.send(subject='用户' + self.nick_name + '商品预约失败', content='商品预约失败')
+                    return False
             else:
                 self.log_stream_info("商品预约失败")
                 self.log_stream_info(json_to_str(resp_json))
@@ -526,15 +543,9 @@ class JDSeckillService(object):
                     if self.emailer:
                         self.emailer.send(subject='用户' + self.nick_name + '商品预约失败', content='商品预约失败')
                 return False
-        else:
-            self.log_stream_info("商品预约失败")
-            self.log_stream_info(json_to_str(resp_json))
-            if not self.failure_msg:
-                self.failure_msg = '商品预约失败'
-                if self.emailer:
-                    self.emailer.send(subject='用户' + self.nick_name + '商品预约失败', content='商品预约失败')
+        except Exception as e:
+            self.log_stream_info('商品预约失败')
             return False
-
 
     def get_user_info(self):
         """获取用户信息
@@ -1037,10 +1048,11 @@ class JDSeckillService(object):
 
             sku_state = resp_json[sku_id].get('skuState')  # 商品是否上架
             stock_state = resp_json[sku_id].get('StockState')  # 商品库存状态：33 -- 现货  0,34 -- 无货  36 -- 采购中  40 -- 可配货
-            if sku_state == 1 and stock_state in (33, 36, 40):
+            # if sku_state == 1 and stock_state in (33, 36, 40):
+            if stock_state in (33, 36, 39, 40):
                 self.log_stream_info('===============================发现库存===========================================')
             self.log_stream_info('库存状态: %s', self.stock_state_map[str(stock_state)])
-            return sku_state == 1 and stock_state in (33, 36, 40)
+            return stock_state in (33, 36, 39, 40)
         except requests.exceptions.Timeout:
             self.log_stream_error('查询 %s 库存信息超时(%ss)', sku_id, self.timeout)
             return False
@@ -1107,7 +1119,7 @@ class JDSeckillService(object):
             if flag:
                 self.log_stream_info('===============================发现库存===========================================')
             else:
-                self.select_all_cart_item_pc(check_price=True)
+                self.select_single_cart_item_pc(check_price=True)
             self.log_stream_info('库存状态: %s', self.stock_state_map[str(stock_state)])
             return flag
         except requests.exceptions.Timeout:
@@ -1169,7 +1181,7 @@ class JDSeckillService(object):
         return parse_json(resp.text).get('p')
 
     @fetch_latency
-    def add_item_to_cart_pc(self, sku_id, num):
+    def add_item_to_cart_pc(self, sku_id, num, check_result=True):
         """添加商品到购物车
 
         重要：
@@ -1196,22 +1208,26 @@ class JDSeckillService(object):
 
         result = False
 
-        resp = self.sess.get(url=url, params=payload, headers=headers)
-        if 'https://cart.jd.com/cart.action' in resp.url:  # 套装商品加入购物车后直接跳转到购物车页面
-            result = True
-        else:  # 普通商品成功加入购物车后会跳转到提示 "商品已成功加入购物车！" 页面
-            soup = BeautifulSoup(resp.text, "html.parser")
-            if '京东购物车-加购成功页' == soup.title.string:
-                result = True
-            else:
-                result = bool(soup.select('h3.ftx-02'))  # [<h3 class="ftx-02">商品已成功加入购物车！</h3>]
+        resp = self.sess.get(url=url, params=payload, headers=headers, allow_redirects=check_result)
 
-        if result:
-            self.log_stream_info('%s x %s 已成功加入购物车', sku_id, num)
-            return True
+        if check_result:
+            if 'https://cart.jd.com/cart.action' in resp.url:  # 套装商品加入购物车后直接跳转到购物车页面
+                result = True
+            else:  # 普通商品成功加入购物车后会跳转到提示 "商品已成功加入购物车！" 页面
+                soup = BeautifulSoup(resp.text, "html.parser")
+                if '京东购物车-加购成功页' == soup.title.string:
+                    result = True
+                else:
+                    result = bool(soup.select('h3.ftx-02'))  # [<h3 class="ftx-02">商品已成功加入购物车！</h3>]
+
+            if result:
+                self.log_stream_info('%s x %s 已成功加入购物车', sku_id, num)
+                return True
+            else:
+                self.log_stream_error('%s 添加到购物车失败', sku_id)
+                return False
         else:
-            self.log_stream_error('%s 添加到购物车失败', sku_id)
-            return False
+            return True
 
     @fetch_latency
     def add_item_to_cart(self, sku_id, num):
@@ -1326,8 +1342,9 @@ class JDSeckillService(object):
                 return True
             else:
                 for item in vendor_cart:
-                    id_array.append(item['sortedItems'][0]['itemId'])
-                    commlist.append('{},,1,{},1,,0,skuUuid:{}@@useUuid:0'.format(item['sortedItems'][0]['itemId'],item['sortedItems'][0]['itemId'],item['sortedItems'][0]['polyItem']['products'][0]['skuUuid']))
+                    for sorted_item in item['sortedItems']:
+                        id_array.append(sorted_item['itemId'])
+                        commlist.append('{},,1,{},1,,0,skuUuid:{}@@useUuid:0'.format(sorted_item['itemId'],sorted_item['itemId'],sorted_item['polyItem']['products'][0]['skuUuid']))
 
                 commlist_str = '$'.join(commlist)
 
@@ -1509,9 +1526,119 @@ class JDSeckillService(object):
         return response_status(resp)
 
     @fetch_latency
+    def select_single_cart_item_pc(self,check_price=False, add_cart_when_cant_be_selected=True):
+        try:
+            url = "https://api.m.jd.com/api"
+
+            headers = {
+                'User-Agent': self.user_agent,
+                'origin':'https://cart.jd.com',
+                'referer':'https://cart.jd.com/'
+            }
+
+            body = json_to_str({
+                "operations": [
+                    {
+                    "carttype": "5",
+                    "ThePacks": [
+                        {
+                        "num": 1,
+                        "sType": 11,
+                        "Id": self.sku_cart_id,
+                        "TheSkus": [
+                            {
+                            "num": self.target_sku_num,
+                            "Id": self.target_sku_id,
+                            }
+                        ]
+                        }
+                    ]
+                    }
+                ],
+                "serInfo": {
+                    "area": self.area_id,
+                    "user-key": self.user_id
+                }
+            })
+
+            payload = {
+                'functionId': 'pcCart_jc_cartCheckSingle',
+                'appid':'JDC_mall_cart',
+                'loginType':3,
+                'body': body
+            }
+
+            resp_text = json.loads(self.sess.post(url, data=payload, headers=headers, allow_redirects=False).text)
+
+            if 'success' not in resp_text or not resp_text['success']:
+                self.log_stream_info('select_single_cart_item_pc购物车信息出错')
+                return False
+            else:
+                if 'resultData' not in resp_text or not resp_text['resultData']['cartInfo'] or resp_text['resultData']['cartInfo']['checkedWareNum'] == 0:
+                    if add_cart_when_cant_be_selected:
+                        self.log_stream_info('购物车商品已被删除，重新添加')
+                        added = self.create_temp_order_traditional(is_add_cart_item=True, check_price=False)
+                        return added
+                    else:
+                        return False
+                else:
+                    self.is_ready_place_order =  resp_text['resultData']['cartInfo']['checkedWareNum'] ==  resp_text['resultData']['cartInfo']['Num']
+                    if self.is_ready_place_order:
+                        self.log_stream_info('完成购物车选中') 
+                    else:
+                        self.log_stream_info('购物车选中失败') 
+                        return False
+
+                    if check_price:
+                        self.log_stream_info('当前商品价格: ' + str(float(resp_text['resultData']['cartInfo']['Price']))) 
+                        price_resumed = float(resp_text['resultData']['cartInfo']['Price']) > self.order_price_threshold
+                        if price_resumed:
+                            self.price_resumed = True
+                            self.log_stream_info('购物车价格已恢复原价, 当前价格:%s, 下单价格阈值: %s', float(resp_text['resultData']['cartInfo']['Price']), self.order_price_threshold) 
+
+                    self.cart_selected = True
+                    return True
+        except Exception as e:
+            self.log_stream_error('选中购物车发生异常, resp: %s, exception: %s', resp_text, e)
+            return False
+
+    @fetch_latency
+    def unselect_all_cart_item_pc(self):
+        try:
+            url = "https://api.m.jd.com/api"
+
+            headers = {
+                'User-Agent': self.user_agent,
+                'origin': 'https://cart.jd.com',
+                'Referer': 'https://cart.jd.com/',
+            }
+
+            data = {
+                'functionId': 'pcCart_jc_cartUnCheckAll',
+                'appid': 'JDC_mall_cart',
+                'loginType': 3,
+                'body': json_to_str({"serInfo":{"area":self.area_id,"user-key":self.user_id}})
+            }
+
+            resp_text =  json.loads(self.sess.post(url, data=data, headers=headers).text)
+
+            if 'success' not in resp_text or not resp_text['success']:
+                self.log_stream_info('购物车信息出错')
+                return False
+            else:
+                if 'resultData' not in resp_text or not resp_text['resultData']['cartInfo'] or resp_text['resultData']['cartInfo']['checkedWareNum'] == 0:
+                    self.sku_cart_id = resp_text['resultData']['cartInfo']['vendors'][0]['sorted'][0]['item']['Id']
+                    return True
+                else:
+                    return False
+        except Exception as e:
+            self.log_stream_error('取消选中购物车发生异常, resp: %s, exception: %s', resp_text, e)
+            return False
+
+    @fetch_latency
     def select_all_cart_item_pc(self, is_multi_thread=False, check_price=False, add_cart_when_cant_be_selected=True):
         try:
-            url = "https://api.m.jd.com/api?functionId=pcCart_jc_cartCheckAll"
+            url = "https://api.m.jd.com/api"
 
             headers = {
                 'User-Agent': self.user_agent,
@@ -1526,10 +1653,10 @@ class JDSeckillService(object):
                 'body': json_to_str({"serInfo":{"area":self.area_id,"user-key":self.user_id}})
             }
 
-            resp_text =  json.loads(self.sess.post(url, data=data, headers=headers).text)
+            resp_text =  json.loads(self.sess.post(url, data=data, headers=headers, allow_redirects=False).text)
 
             if 'success' not in resp_text or not resp_text['success']:
-                self.log_stream_info('购物车信息出错')
+                self.log_stream_info('select_all_cart_item_pc购物车信息出错')
                 return False
             else:
                 if 'resultData' not in resp_text or not resp_text['resultData']['cartInfo'] or resp_text['resultData']['cartInfo']['checkedWareNum'] == 0:
@@ -1545,6 +1672,7 @@ class JDSeckillService(object):
                         self.log_stream_info('完成购物车选中') 
                     else:
                         self.log_stream_info('购物车选中失败') 
+                        return False
 
                     if check_price:
                         self.log_stream_info('当前商品价格: ' + str(float(resp_text['resultData']['cartInfo']['Price']))) 
@@ -1590,8 +1718,14 @@ class JDSeckillService(object):
             if self.is_ready_place_order or (count > select_cart_count):
                 break
             else:
-                self.select_all_cart_item()
+                execute_in_thread(self.select_single_cart_item_pc, [])
+                time.sleep(10/1000)
                 count += 1
+        
+        if self.is_ready_place_order:
+            return True
+        else:
+            return False
 
     def _change_item_num_in_cart(self, sku_id, vender_id, num, p_type, target_id, promo_id):
         """修改购物车商品的数量
@@ -1651,7 +1785,7 @@ class JDSeckillService(object):
             return self.add_item_to_cart(sku_id, count)
 
     @fetch_latency
-    def get_checkout_page_detail(self):
+    def get_checkout_page_detail(self, fast_mode=True):
         """获取订单结算页面信息
 
         该方法会返回订单结算页面的详细信息：商品名称、价格、数量、库存状态等。
@@ -1660,27 +1794,36 @@ class JDSeckillService(object):
         """
         url = 'http://trade.jd.com/shopping/order/getOrderInfo.action'
 
+        headers = {
+            'User-Agent': self.user_agent,
+            'Host': 'trade.jd.com',
+            'origin': 'https://trade.jd.com'
+        }
+
         payload = {
             'rid': str(int(time.time() * 1000))
         }
 
         try:
-            resp = self.sess.get(url=url, params=payload)
+            resp = self.sess.get(url=url, params=payload, headers=headers)
 
             if not response_status(resp):
                 self.log_stream_error('获取订单结算页信息失败')
                 return
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            self.risk_control = get_tag_value(soup.select('input#riskControl'), 'value')
-
-            return self.risk_control
+            else:
+                if fast_mode:
+                    return
+                else:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    self.risk_control = get_tag_value(soup.select('input#riskControl'), 'value')
+                    return self.risk_control
         except Exception as e:
             logging.exception("error")
             self.log_stream_error('订单结算页面数据解析异常（可以忽略），报错信息：%s', e)
 
     @fetch_latency
     def _save_invoice(self):
+        self.log_stream_info('_save_invoice 开始执行')
         """下单第三方商品时如果未设置发票，将从电子发票切换为普通发票
 
         http://jos.jd.com/api/complexTemplate.htm?webPamer=invoice&groupName=%E5%BC%80%E6%99%AE%E5%8B%92%E5%85%A5%E9%A9%BB%E6%A8%A1%E5%BC%8FAPI&id=566&restName=jd.kepler.trade.submit&isMulti=true
@@ -1734,6 +1877,8 @@ class JDSeckillService(object):
 
         self.sess.post(url=url, data=data, headers=headers)
         resp = self.sess.post(url=url, data=data, headers=headers)
+
+        self.save_invoice_done = True
 
     @fetch_latency
     def _update_order_invoice(self):
@@ -2330,6 +2475,7 @@ class JDSeckillService(object):
             'submitOrderParam.eid': self.eid,
             'submitOrderParam.fp': self.fp,
             'submitOrderParam.needCheck': 1,
+            'submitOrderParam.zpjd': 1,
             'presaleStockSign': 1
         }
 
@@ -3056,35 +3202,42 @@ class JDSeckillService(object):
         :param interval: 重试间隔
         :return: 订单提交结果 True/False
         """
-        self.order_id = ''
-        for i in range(1, retry + 1):
-            if is_multi_thread:
-                thread_count = 4
+        try:
+            self.log_stream_error('执行订单提交')
+            self.submit_order_done = False
+            self.order_id = ''
+            for i in range(1, retry + 1):
+                if is_multi_thread:
+                    thread_count = 4
 
-                for thread_index in range (1, thread_count):
-                    t = threading.Thread(target=self.submit_order_pc, args=(is_multi_thread, self,thread_index))
-                    t.daemon = True
-                    t.start()
+                    for thread_index in range (1, thread_count):
+                        t = threading.Thread(target=self.submit_order_pc, args=(is_multi_thread, self,thread_index))
+                        t.daemon = True
+                        t.start()
 
-                while not self.order_id and (self.executed_thread_count != thread_count-1):
-                    time.sleep(0.01)
+                    while not self.order_id and (self.executed_thread_count != thread_count-1):
+                        time.sleep(0.01)
+                else:
+                    thread_index = 0
+                    self.submit_order_pc(is_multi_thread, self, thread_index)
+                if self.order_id:
+                    client_label = 'PC端'
+                    self.log_stream_info('使用%s第%s次下单成功', client_label, i)
+                    return self.order_id
+                else:
+                    if i <= retry:
+                        self.log_stream_info('第%s次下单失败，%ss后重试', i, interval)
+                        self.temp_order_pc_delay = self.temp_order_pc_delay + 100
+                        self.submit_order_pc_delay = self.submit_order_pc_delay + 200
+                        # self.create_temp_order()
+                        self.clear_cart()
+                        self.create_temp_order_traditional(is_add_cart_item=True, check_price=True)
+                        time.sleep(interval)
             else:
-                thread_index = 0
-                self.submit_order_pc(is_multi_thread, self, thread_index)
-            if self.order_id:
-                client_label = 'PC端'
-                self.log_stream_info('使用%s第%s次下单成功', client_label, i)
-                return self.order_id
-            else:
-                if i <= retry:
-                    self.log_stream_info('第%s次下单失败，%ss后重试', i, interval)
-                    # self.create_temp_order()
-                    self.clear_cart()
-                    self.create_temp_order_traditional(is_add_cart_item=True, check_price=True)
-                    time.sleep(interval)
-        else:
-            self.log_stream_info('重试提交%s次结束', retry)
-            return False
+                self.log_stream_info('重试提交%s次结束', retry)
+                return False
+        finally:
+            self.submit_order_done = True
 
     def submit_order_with_retry_mobile(self, is_multi_thread, retry=10, interval=2):
         """提交订单，并且带有重试功能
@@ -3598,6 +3751,11 @@ class JDSeckillService(object):
         else:
             sku_info['is_jd_delivery'] = False
 
+        if '自营' in resp.text and sku_info['is_jd_delivery']:
+            self.jd_product = True
+        else:
+            self.jd_product = False
+
         if 'disableCoupon' in resp_json:
             sku_info['disableCoupon'] = True
 
@@ -3796,7 +3954,10 @@ class JDSeckillService(object):
         # 尝试再次预约，以避免类型变动
         sku_id = self.target_sku_id
         if not self.make_reserve(sku_id):
-            raise RestfulException(error_dict['SERVICE']['JD']['MANUAL_RESERVE_REQUIRED'])
+            self.log_stream_info('商品预约失败 重试')
+            time.sleep(5)
+            if not self.make_reserve(sku_id):
+                return False
 
     @fetch_latency
     def update_sys_time(self, target_time, leading_in_sec):
@@ -3944,6 +4105,8 @@ class JDSeckillService(object):
 
     @fetch_latency
     def get_order_coupons(self):
+        self.log_stream_info('get_order_coupons 开始执行')
+        self.get_coupons_request_done = False
         url = 'https://trade.jd.com/shopping/dynamic/coupon/getCoupons.action'
         data = {
             'presaleStockSign': 1
@@ -3956,10 +4119,17 @@ class JDSeckillService(object):
             'User-Agent': self.user_agent,
             'referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action',
         }
-        resp = self.sess.post(url, data=data, headers=headers)
+        resp_Text = self.sess.post(url, data=data, headers=headers).text
+        if resp_Text:
+            self.log_stream_error('get_order_coupons 成功')
+        else:
+            self.log_stream_error('get_order_coupons 失败')
+        self.get_coupons_request_done = True
 
     @fetch_latency
     def get_best_coupons(self):
+        self.best_coupon_request_done = False
+        self.log_stream_info('get_best_coupons 开始执行')
         url = 'https://trade.jd.com/shopping/dynamic/coupon/getBestVertualCoupons.action'
         data = {
             'presaleStockSign': 1
@@ -3970,10 +4140,12 @@ class JDSeckillService(object):
             'User-Agent': self.user_agent,
             'referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action',
         }
-        resp = self.sess.post(url, data=data, headers=headers)
+        resp = self.sess.post(url, data=data, headers=headers, allow_redirects=False)
+        self.best_coupon_request_done = True
 
     @fetch_latency
     def get_addit_shipment_new(self):
+        self.log_stream_info('get_addit_shipment_new 开始执行')
         url = 'https://trade.jd.com/shopping/dynamic/payAndShip/getAdditShipmentNew.action'
         data = {
             'paymentId': '4',
@@ -3992,8 +4164,10 @@ class JDSeckillService(object):
         }
         resp = self.sess.post(url, data=data, headers=headers)
 
+
     @fetch_latency
     def check_open_consignee(self):
+        self.log_stream_info('check_open_consignee 开始执行')
         url = 'https://trade.jd.com/shopping/dynamic/payAndShip/getAdditShipmentNew.action'
         data = {
             'consigneeParam.provinceId': '8',
@@ -4012,6 +4186,7 @@ class JDSeckillService(object):
 
     @fetch_latency
     def save_pay_and_ship_new(self):
+        self.log_stream_info('save_pay_and_ship_new 开始执行')
         url = 'https://trade.jd.com/shopping/dynamic/payAndShip/savePayAndShipNew.action'
         data = {
             'saveParam.paymentId': 4,
@@ -4042,6 +4217,7 @@ class JDSeckillService(object):
 
     @fetch_latency
     def obtain_copy_info_config(self):
+        self.log_stream_info('obtain_copy_info_config 开始执行')
         url = 'https://trade.jd.com/shopping/async/obtainCopyInfoConfig.action'
         data = {
             'orderInfoParam.provinceId': '8',
@@ -4058,6 +4234,7 @@ class JDSeckillService(object):
 
     @fetch_latency
     def get_consignee_list(self):
+        self.log_stream_info('get_consignee_list 开始执行')
         url = 'https://trade.jd.com/shopping/dynamic/consignee/consigneeList.action'
         data = {
             'consigneeParam.newId': '486115477',
@@ -4074,7 +4251,22 @@ class JDSeckillService(object):
         resp = self.sess.post(url, data=data, headers=headers)
     
     @fetch_latency
-    def save_order_address(self):
+    def save_order_address(self, is_submit_order=False):
+        self.submit_order_pc_delay = random.randint(120, 140)
+        if not self.is_debug_mode:
+            if is_submit_order:
+                # 提前下单
+                self.log_stream_error('订单提交延迟: %s', str(self.submit_order_pc_delay))
+                # 下单参数
+                submit_retry_count = 1
+                submit_interval = 0.1
+                is_multi_thread = False
+                execute_in_thread(self.submit_order_with_retry, [is_multi_thread, submit_retry_count, submit_interval], delay = self.submit_order_pc_delay/1000)
+        else:
+            self.log_stream_error('debug mode 略过提交')
+
+        self.order_address_request_done = False
+        self.log_stream_info('save_order_address 开始执行')
         url = 'https://trade.jd.com/shopping/dynamic/consignee/saveConsignee.action'
         data = {
             'consigneeParam.newId': self.area_ref_id,
@@ -4096,8 +4288,13 @@ class JDSeckillService(object):
             'referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action',
             'origin': 'https://trade.jd.com',
         }
-        resp = self.sess.post(url, data=data, headers=headers)
-        resp_text = resp.text
+        resp = self.sess.post(url, data=data, headers=headers, allow_redirects=False)
+        resp_json = parse_json(resp.text)
+        if 'success' in resp_json and resp_json['success']:
+            self.log_stream_error('save_order_address 成功')
+        else:
+            self.log_stream_error('save_order_address 失败')
+        self.order_address_request_done = True
 
     @fetch_latency
     def add_random_addtional_item_to_cart(self):
@@ -4274,26 +4471,45 @@ class JDSeckillService(object):
             return False
 
     @fetch_latency
-    def create_temp_order_traditional(self, is_add_cart_item=False, check_price=False):
+    def batch_order_detail_actions(self, submit_order=False):
+        # 开启线程执行并发请求
+        self.temp_order_pc_delay = random.randint(140, 200)
+        self.log_stream_error('创建临时订单延迟: %s', str(self.temp_order_pc_delay))
+        execute_in_thread(self.save_order_address, [submit_order], delay = self.temp_order_pc_delay/1000)
+        # execute_in_thread(self.get_best_coupons, [], delay = self.temp_order_pc_delay/1000)
+        # execute_in_thread(self.get_order_coupons, [], delay = self.temp_order_pc_delay/1000)
+        # execute_in_thread(self.obtain_copy_info_config, [], delay = self.temp_order_pc_delay/1000)
+        # execute_in_thread(self.get_consignee_list, [], delay = self.temp_order_pc_delay/1000)
+
+    @fetch_latency
+    def create_temp_order_traditional(self, is_add_cart_item=False, check_price=False, is_warm_up_request=False):
         succeed = False
         if self.is_pc_cookie_valid:
             if is_add_cart_item:
                 succeed = self.add_item_to_cart_pc(self.target_sku_id, self.target_sku_num)
+                self.save_order_address()
             else:
                 # 选中购物车
-                cart_selected = False
-                cart_select_error_count = 0
-                while not cart_selected and cart_select_error_count < 3:
-                    cart_selected = self.select_all_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
-                    if not cart_selected:
-                        cart_select_error_count = cart_select_error_count + 1
-                succeed = cart_selected
-            
-            if self.remaining_delivery_coupon and self.remaining_delivery_coupon > 0:
-                # 使用优惠券
-                self.get_best_coupons()
-            # 保存默认地址
-            self.save_order_address()
+                if not is_warm_up_request:
+                    # 主线程执行选中购物车
+                    self.cart_selected = False
+                    cart_select_error_count = 0
+                    # self.unselect_all_cart_item_pc()
+                    while not self.cart_selected and cart_select_error_count < 3:
+                        self.select_single_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
+                        if not self.cart_selected:
+                            cart_select_error_count = cart_select_error_count + 1
+                    succeed = self.cart_selected
+
+                    if not self.jd_product:
+                        # 创建订单并提交
+                        self.save_order_address(is_submit_order=True)
+                else:
+                    # not checking result for warming up request
+                    self.cart_selected = True
+                    self.select_single_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
+                
+                self.log_stream_info('create_temp_order_traditional等待结束')
             return succeed
         else:
             self.log_stream_error('PC cookie 无效，略过create_temp_order_traditional')
@@ -4449,13 +4665,66 @@ class JDSeckillService(object):
 
         self.clear_cart()
 
+    @fetch_latency
+    def sync_order_setting(self):
+        try:
+            url = 'https://search.jd.com/s_new.php?keyword=%E6%96%87%E5%85%B7&qrst=1&psort=2&wq=%E6%96%87%E5%85%B7&stock=1&psort=2&shop=1&click=2&cs=y'
+            headers = {
+                'User-Agent': self.user_agent
+            }
+            resp = self.sess.get(url=url, headers=headers)
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            goods_list = soup.find('div', {'id': 'J_goodsList'})
+            li_elements = goods_list.findChildren("li" , recursive=True)
+
+            sku_list = []
+            loop_index = 0
+            
+            while loop_index < len(li_elements):
+                add_cart_btn_value = li_elements[loop_index].findChildren("a", {'class': 'p-o-btn addcart'} , recursive=True)[0].get_text()
+                if '加入购物车' in add_cart_btn_value:
+                    item_item_sku = li_elements[loop_index]['data-sku']
+                    sku_list.append(item_item_sku)
+                loop_index = loop_index + 1
+
+            if len(sku_list)>0:
+                random_item_sku = sku_list[random.randint(0, len(sku_list)-1)]
+            else:
+                random_item_sku = li_elements[0]['data-sku']
+
+            self.log_stream_info('同步订单设置商品: %s', str(random_item_sku))
+
+            self.add_item_to_cart(random_item_sku, 1)
+            self.get_checkout_page_detail(fast_mode=False)
+            self.save_order_address()
+            self.get_order_coupons()
+            self.get_best_coupons()
+            if not self.jd_product:
+                self.clear_cart()
+
+            self.log_stream_info('同步订单设置结束')
+
+        except Exception as e:
+            self.log_stream_error('sync_order_setting失败')
+
     def pre_order_cart_action(self, target_time=None, leading_in_sec=None, is_before_start=False):
         if self.is_pc_cookie_valid:
             if self.is_marathon_mode:
                 self.create_temp_order()
             else:
-                self.clear_cart()
-                self.add_item_to_cart_pc(self.target_sku_id, self.target_sku_num)
+                if self.jd_product:
+                    self.add_item_to_cart_pc(self.target_sku_id, self.target_sku_num, check_result=False)
+                    self.unselect_all_cart_item_pc()
+                    self.sync_order_setting()
+                else:
+                    self.sync_order_setting()
+                    self.add_item_to_cart_pc(self.target_sku_id, self.target_sku_num, check_result=False)
+                    self.unselect_all_cart_item_pc()
+                # warm up request
+                # self.batch_order_detail_actions(submit_order=False)
+                # self.unselect_all_cart_item_pc()
+                # self.create_temp_order_traditional(is_warm_up_request=True)
         else:
             self.create_temp_order()
 
@@ -4485,18 +4754,6 @@ class JDSeckillService(object):
         if not self.execution_keep_running:
             return False
 
-
-        # 开始前leading_in_sec# 购物车准备
-        leading_in_sec = 20 * 30
-        sleep_interval = 1
-        is_before_start = True
-        title = '抢购前[{0}]秒购物车准备'.format(leading_in_sec)
-        self.call_function_with_leading_time(title, sleep_interval, self.pre_order_cart_action, target_time, leading_in_sec, is_before_start)
-
-        # 设置取消检查点
-        if not self.execution_keep_running:
-            return False
-
         adjusted_target_time = ''
 
         try:
@@ -4521,6 +4778,17 @@ class JDSeckillService(object):
                 return False
 
         adjusted_target_time = self.adjust_leading_time_once(adjusted_target_time)
+
+        # 设置取消检查点
+        if not self.execution_keep_running:
+            return False
+
+        # 开始前leading_in_sec# 购物车准备
+        leading_in_sec = 20
+        sleep_interval = 1
+        is_before_start = True
+        title = '抢购前[{0}]秒购物车准备'.format(leading_in_sec)
+        self.call_function_with_leading_time(title, sleep_interval, self.pre_order_cart_action, target_time, leading_in_sec, is_before_start)
 
         # 设置取消检查点
         if not self.execution_keep_running:
@@ -4562,12 +4830,15 @@ class JDSeckillService(object):
         try:
             self.log_stream_info('==========================初始化抢购程序=================================')
 
+            self.temp_order_pc_delay = int(global_config.get('config', 'temp_order_pc_delay'))
+            self.submit_order_pc_delay = int(global_config.get('config', 'submit_order_pc_delay'))
+
             # 等待随机秒，避免cookie错误
             random_wait = random.randint(0, 10)
             self.log_stream_info('等待%s秒检查用户cookie', random_wait)
             time.sleep(random_wait)
             self.check_individual_client_cookie()
-            
+
             # 基本信息
             self.log_stream_info('运行在debug模式:%s', self.bool_map[str(self.is_debug_mode)])
 
@@ -4626,7 +4897,10 @@ class JDSeckillService(object):
             # 自动预约
             if item_info['is_reserve_product'] and item_info['reserve_info']['reserve_state_str'] == '正在预约':
                 if not self.make_reserve(sku_id):
-                    return False
+                    self.log_stream_info('商品预约失败 重试')
+                    time.sleep(5)
+                    if not self.make_reserve(sku_id):
+                        return False
             
             # # 尝试添加目标商品到购物车以测试是否可以添加成功
             # if not item_info['is_presale_product'] and not self.add_item_to_cart(sku_id, num):
@@ -4650,6 +4924,8 @@ class JDSeckillService(object):
             self.log_stream_info('下单价格阈值           %s元', self.get_target_product_price_threshold())
             self.log_stream_info('提前下单时间           %sms', self.order_leading_in_millis)
             
+            self.add_item_to_cart_pc(sku_id, num)
+            self.unselect_all_cart_item_pc()
             #  清空购物车
             self.log_stream_info('清空购物车')
             self.clear_cart()
@@ -4659,7 +4935,7 @@ class JDSeckillService(object):
             # 获取cookie用户信息
             cookies = self._get_user_info_from_cookie()
 
-            # self.user_id = cookies['user-key']
+            self.user_id = cookies['user-key']
             self.jxsid = cookies['jxsid']
             self.visitKey = cookies['visitkey']
 
@@ -4714,7 +4990,7 @@ class JDSeckillService(object):
             self.log_stream_info('===============================提交订单===================================')
 
             # 如果是PC模式 重新创建订单
-            if self.is_pc_cookie_valid:
+            if self.is_pc_cookie_valid and not self.is_marathon_mode:
                 # time.sleep((int(self.order_leading_in_millis)-random.randint(10, 25))/1000)
                 self.create_temp_order_traditional(is_add_cart_item=False, check_price=False)
                 # self.create_temp_order_bp_after_start()
@@ -4730,14 +5006,21 @@ class JDSeckillService(object):
             if not self.is_debug_mode:
                 if not self.is_marathon_mode:
                 
-                    # 下单参数
-                    submit_retry_count = 1
-                    submit_interval = 0.1
-                    is_multi_thread = False
+                    if self.jd_product:
+                        # 下单参数
+                        submit_retry_count = 1
+                        submit_interval = 0.1
+                        is_multi_thread = False
+                        order_id = self.submit_order_with_retry(is_multi_thread, submit_retry_count, submit_interval)
+                    else:
+                        count = 0
+                        while not self.submit_order_done and count < 3000:
+                            time.sleep(0.1)
+                            count = count + 1
 
-                    # order_id = ''
-                    order_id = self.submit_order_with_retry(is_multi_thread, submit_retry_count, submit_interval)
+                    self.log_stream_info('订单提交结束')
 
+                    order_id = self.order_id
                     if order_id:
                         order_id_list.append(order_id)
 
@@ -4810,7 +5093,7 @@ class JDSeckillService(object):
                     break
                 else:
                     self.if_item_can_be_ordered(round=round, is_random_check_stock=True)
-                    self.select_all_cart_item_pc(check_price=True)
+                    self.select_single_cart_item_pc(check_price=True, add_cart_when_cant_be_selected=True)
                     if self.price_resumed:
                         self.log_stream_info("商品%s已恢复非秒杀价，无需继续刷新，程序退出", self.target_sku_id)
                         return []
@@ -4977,7 +5260,6 @@ class JDSeckillService(object):
                         # 获取当前商品信息
                         item = self.target_product
                         if item['is_seckill_product']:
-                            self.create_temp_order_traditional(is_add_cart_item=True, check_price=True)
                             # 下单
                             is_multi_thread = False
                             # order_id = ''

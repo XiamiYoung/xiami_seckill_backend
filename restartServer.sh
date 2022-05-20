@@ -1,0 +1,2 @@
+./stopServer.sh
+./startServer.sh

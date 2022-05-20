@@ -39,7 +39,7 @@ class XiamiSeckillAppConfig(AppConfig):
 
             self.execute_in_thread(self.query_arrangement_on_ready, [system_emailer])
             self.execute_in_thread(self.query_sys_info_on_ready, [system_emailer])
-            self.execute_in_thread(self.check_bp_config, [system_emailer])
+            # self.execute_in_thread(self.check_bp_config, [system_emailer])
         else:
             self.logger.info('略过启动程序')
             return

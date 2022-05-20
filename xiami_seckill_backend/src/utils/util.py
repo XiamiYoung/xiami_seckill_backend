@@ -11,6 +11,7 @@ import random
 import math
 import time
 import psutil
+import threading
 from urllib.parse import unquote
 from functools import wraps
 from itertools import chain
@@ -308,7 +309,7 @@ def is_all_jd_delivery(target_product):
     if target_product['is_jd_delivery']:
         return True
     else:
-        return True
+        return False
 
 def select_random_item_from_array(array):
     return random.choice(array)
@@ -403,3 +404,9 @@ def url_decode(str):
 def unicode_decode(str):
     bytes = str.encode('utf-8')
     return bytes.decode('utf-8')
+
+def execute_in_thread(func, args, delay=0):
+    t = threading.Timer(delay, func, args=args )
+    # t = threading.Thread(target=func, args=args)
+    t.daemon = True
+    t.start()
