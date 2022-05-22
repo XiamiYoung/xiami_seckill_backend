@@ -8,6 +8,7 @@ from services.public.jd.jd_seckill_service import JDSeckillService
 from services.public.common.login_user_service import LoginUserService
 from services.public.jd.jd_order_service import JDOrderService
 from services.public.jd.jd_user_service import JDUserService
+from services.public.jd.jd_log_service import JDLogService
 
 class JDBaseController(BaseController):
     def _get_jd_seckill_service(self, login_user_name):
@@ -16,6 +17,9 @@ class JDBaseController(BaseController):
 
     def _get_login_user_service(self):
         return LoginUserService()
+
+    def _get_log_service(self):
+        return JDLogService()
 
     def _get_jd_user_service(self):
         return JDUserService()

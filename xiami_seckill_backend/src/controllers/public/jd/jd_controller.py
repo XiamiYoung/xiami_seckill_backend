@@ -606,10 +606,10 @@ class JDController(JDBaseController):
         login_username = self._get_login_username(request)
 
         # get JD service
-        jd_seckill_service = self._get_jd_seckill_service(login_username) 
+        jd_log_service = self._get_log_service() 
 
         # call service
-        ret = jd_seckill_service.read_execution_log(login_username, nick_name, last_id)
+        ret = jd_log_service.read_execution_log(login_username, nick_name, last_id)
 
         # send response
         resp_body = BaseResBody().to_json_body()
