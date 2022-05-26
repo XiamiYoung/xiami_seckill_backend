@@ -472,6 +472,8 @@ class JDController(JDBaseController):
         leading_time = data['leading_time']
         target_time = data['target_time']
         nick_name = data['nick_name']
+        if 'address_id' in data:
+            address_id = data['address_id']
         is_add = data['is_add']
         login_username = self._get_login_username(request)
 
@@ -479,7 +481,7 @@ class JDController(JDBaseController):
         jd_seckill_service = self._get_jd_seckill_service(login_username)
 
         # call service
-        self.execute_in_thread(jd_seckill_service.add_or_remove_arrangement, (leading_time, target_time, login_username, nick_name, is_add))
+        self.execute_in_thread(jd_seckill_service.add_or_remove_arrangement, (leading_time, target_time, login_username, nick_name, address_id, is_add))
 
         # send response
         resp_body = BaseResBody().to_json_body()

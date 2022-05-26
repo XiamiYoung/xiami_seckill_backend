@@ -101,6 +101,7 @@ from utils.token_util import (
 class JDSeckillService(object):
 
     def __init__(self, login_username=''):
+        # self.user_agent = DEFAULT_PC_USER_AGENT
         self.user_agent = get_random_useragent()
         self.defalut_pc_user_agent = DEFAULT_PC_USER_AGENT
         self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
@@ -469,40 +470,40 @@ class JDSeckillService(object):
         reserve_url = resp_json.get('url')
         return 'https:' + reserve_url if reserve_url else None
 
-    # def make_reserve(self, sku_id):
-    #     """商品预约
-    #     :param sku_id: 商品id
-    #     :return:
-    #     """
-    #     reserve_url = self._get_reserve_url(sku_id)
-    #     if not reserve_url:
-    #         self.log_stream_info('%s 为非预约商品，跳过预约', sku_id)
-    #         return True
-    #     headers = {
-    #         'User-Agent': self.user_agent,
-    #         'Referer': 'https://item.jd.com/{}.html'.format(sku_id),
-    #     }
+    def make_reserve_pc(self, sku_id):
+        """商品预约
+        :param sku_id: 商品id
+        :return:
+        """
+        reserve_url = self._get_reserve_url(sku_id)
+        if not reserve_url:
+            self.log_stream_info('%s 为非预约商品，跳过预约', sku_id)
+            return True
+        headers = {
+            'User-Agent': self.user_agent,
+            'Referer': 'https://item.jd.com/{}.html'.format(sku_id),
+        }
         
-    #     resp = self.sess.get(url=reserve_url, headers=headers)
-    #     soup = BeautifulSoup(resp.text, "html.parser")
-    #     p_tag = soup.find('p', {'class': 'bd-right-result'})
-    #     h3_tag = soup.find('h3', {'class': 'ftx-02'})
-    #     if p_tag:
-    #         reserve_result = soup.find('p', {'class': 'bd-right-result'}).text.strip(' \t\r\n')
-    #         # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
-    #         self.log_stream_info(reserve_result)
-    #         return True
-    #     elif h3_tag:
-    #         self.log_stream_info('商品已过预约期，继续下单')
-    #         self.is_reserve_finished = True
-    #         return True
-    #     else:
-    #         self.log_stream_info("商品预约失败，需要在app商品页面手动预约后再试")
-    #         if not self.failure_msg:
-    #             self.failure_msg = '商品预约失败，需要在app商品页面手动预约后再试'
-    #             if self.emailer:
-    #                 self.emailer.send(subject='用户' + self.nick_name + '需要手动预约商品再试', content='请在app商品页面手动预约')
-    #         return False
+        resp = self.sess.get(url=reserve_url, headers=headers)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        p_tag = soup.find('p', {'class': 'bd-right-result'})
+        h3_tag = soup.find('h3', {'class': 'ftx-02'})
+        if p_tag:
+            reserve_result = soup.find('p', {'class': 'bd-right-result'}).text.strip(' \t\r\n')
+            # 预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约
+            self.log_stream_info(reserve_result)
+            return True
+        elif h3_tag:
+            self.log_stream_info('商品已过预约期，继续下单')
+            self.is_reserve_finished = True
+            return True
+        else:
+            self.log_stream_info("商品预约失败，需要在app商品页面手动预约后再试")
+            if not self.failure_msg:
+                self.failure_msg = '商品预约失败，需要在app商品页面手动预约后再试'
+                if self.emailer:
+                    self.emailer.send(subject='用户' + self.nick_name + '需要手动预约商品再试', content='请在app商品页面手动预约')
+            return False
 
     def make_reserve(self, sku_id):
         url = 'https://wq.jd.com/bases/yuyue/item'
@@ -1283,6 +1284,7 @@ class JDSeckillService(object):
                 return True
             else:
                 self.log_stream_error('%s 添加到购物车失败', sku_id)
+                self.log_stream_error(resp.text)
                 return False
         else:
             return True
@@ -1311,10 +1313,12 @@ class JDSeckillService(object):
                 return True
             else:
                 self.log_stream_error('%s 添加到购物车失败', sku_id)
+                self.log_stream_error(resp.text)
                 return False
         except Exception as e:
             self.log_stream_error('%s 添加到购物车失败', sku_id)
             self.log_stream_error(e)
+            self.log_stream_error(resp.text)
             raise e
 
     # def clear_cart(self):
@@ -1655,7 +1659,6 @@ class JDSeckillService(object):
                             self.price_resumed = True
                             self.log_stream_info('购物车价格已恢复原价, 当前价格:%s, 下单价格阈值: %s', float(resp_text['resultData']['cartInfo']['Price']), self.order_price_threshold) 
 
-                    self.cart_selected = True
                     return True
         except Exception as e:
             self.log_stream_error('选中购物车发生异常, resp: %s, exception: %s', resp_text, e)
@@ -1726,7 +1729,7 @@ class JDSeckillService(object):
                     else:
                         return False
                 else:
-                    self.is_ready_place_order =  resp_text['resultData']['cartInfo']['checkedWareNum'] ==  resp_text['resultData']['cartInfo']['cartNum']
+                    self.is_ready_place_order =  resp_text['resultData']['cartInfo']['checkedWareNum'] ==  resp_text['resultData']['cartInfo']['Num']
                     if self.is_ready_place_order:
                         self.log_stream_info('完成购物车选中') 
                     else:
@@ -2526,13 +2529,13 @@ class JDSeckillService(object):
             'vendorRemarks': '[]',
             'submitOrderParam.sopNotPutInvoice': 'true',
             'submitOrderParam.trackID': self.track_id,
-            'submitOrderParam.ignorePriceChange': 0,
+            'submitOrderParam.ignorePriceChange': 1,
             'submitOrderParam.btSupport': 0,
             'riskControl': self.risk_control,
-            'submitOrderParam.isBestCoupon': 0,
+            'submitOrderParam.isBestCoupon': 1,
             'submitOrderParam.jxj': 1,
-            'submitOrderParam.eid': self.eid,
-            'submitOrderParam.fp': self.fp,
+            'submitOrderParam.eid': '',
+            'submitOrderParam.fp': '',
             'submitOrderParam.needCheck': 1,
             'submitOrderParam.zpjd': 1,
             'presaleStockSign': 1
@@ -2799,7 +2802,7 @@ class JDSeckillService(object):
                 "secondCategoryId": 9197,
                 "thirdCategoryId": 1509,
                 "promoId": 0,
-                "venderId": 10402860,
+                "venderId": 0,
                 "type": 1
                 }
             ],
@@ -3589,7 +3592,7 @@ class JDSeckillService(object):
 
     def marathon_submit_order_mobile(self):
         sleep_interval = 0.1
-        self.trace_id = str(random.randint(10000000000000000, 99999999999999999))
+        # self.trace_id = str(random.randint(10000000000000000, 99999999999999999))
 
         url = 'https://api.m.jd.com/api'
         headers = {
@@ -4015,10 +4018,10 @@ class JDSeckillService(object):
 
         # 尝试再次预约，以避免类型变动
         sku_id = self.target_sku_id
-        if not self.make_reserve(sku_id):
+        if not self.make_reserve_pc(sku_id):
             self.log_stream_info('商品预约失败 重试')
             time.sleep(5)
-            if not self.make_reserve(sku_id):
+            if not self.make_reserve_pc(sku_id):
                 return False
 
     @fetch_latency
@@ -4558,7 +4561,7 @@ class JDSeckillService(object):
                     cart_select_error_count = 0
                     # self.unselect_all_cart_item_pc()
                     while not self.cart_selected and cart_select_error_count < 3:
-                        self.select_single_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
+                        self.cart_selected = self.select_single_cart_item_pc(check_price=check_price, add_cart_when_cant_be_selected=False)
                         if not self.cart_selected:
                             cart_select_error_count = cart_select_error_count + 1
                     succeed = self.cart_selected
@@ -4606,7 +4609,10 @@ class JDSeckillService(object):
                 self.create_order_error_count = 0
                 return False
 
-        self.log_stream_info("BP链接创建订单成功")
+        if order_created:
+            self.log_stream_info("BP链接创建订单成功")
+        else:
+            self.log_stream_info("BP链接创建订单失败")
         # 重置错误计数
         self.create_order_error_count = 0
 
@@ -5089,10 +5095,10 @@ class JDSeckillService(object):
             
             # 自动预约
             if item_info['is_reserve_product'] and item_info['reserve_info']['reserve_state_str'] == '正在预约':
-                if not self.make_reserve(sku_id):
+                if not self.make_reserve_pc(sku_id):
                     self.log_stream_info('商品预约失败 重试')
                     time.sleep(5)
-                    if not self.make_reserve(sku_id):
+                    if not self.make_reserve_pc(sku_id):
                         return False
             
             # # 尝试添加目标商品到购物车以测试是否可以添加成功
@@ -5185,14 +5191,16 @@ class JDSeckillService(object):
                 self.execution_keep_running = False
                 return []
 
-            self.log_stream_info('===============================提交订单===================================')
+            self.log_stream_info('===============================购物车准备===================================')
 
             # 如果是PC模式 重新创建订单
             if self.is_pc_cookie_valid and not self.is_marathon_mode:
                 # time.sleep((int(self.order_leading_in_millis)-random.randint(10, 25))/1000)
-                self.create_temp_order_traditional(is_add_cart_item=False, check_price=False)
+                self.create_temp_order_traditional(is_add_cart_item=False, check_price=True)
+                self.price_resumed = False
                 # self.create_temp_order_bp_after_start()
 
+            self.log_stream_info('===============================提交订单===================================')
 
             # 更换为bp添加购物车方式，然后PC下单
             # self.create_temp_order_bp()
@@ -5212,7 +5220,7 @@ class JDSeckillService(object):
                             is_multi_thread = False
                             order_id = self.submit_order_with_retry(is_multi_thread, submit_retry_count, submit_interval)
                         else:
-                            self.log_stream_error('购物车选中失败，略过订单提交')
+                            self.log_stream_error('购物车选中失败，略过混合订单提交，尝试重新添加购物车')
                             self.clear_cart()
                             self.create_temp_order_traditional(is_add_cart_item=True, check_price=True)
                             order_id = ''
@@ -5710,7 +5718,7 @@ class JDSeckillService(object):
                             return True
         return False
 
-    def add_or_remove_arrangement(self, leading_time, target_time, login_username, nick_name, is_add):
+    def add_or_remove_arrangement(self, leading_time, target_time, login_username, nick_name, address_id, is_add):
         lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_SECKILL_ARRANGEMENT + login_username)
         
         try:
@@ -5731,6 +5739,7 @@ class JDSeckillService(object):
                     arrangement_cache_status_item = {
                         'nick_name': nick_name,
                         'leading_time': leading_time,
+                        'address_id': address_id,
                         'seckill_arangement':[]
                     }
                     arrangement_cache_status_arangement_item = {
