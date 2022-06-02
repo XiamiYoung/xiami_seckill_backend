@@ -1,0 +1,17 @@
+{
+  "name": "h5st",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "crypto-js": "4.1.1",
+    "axios": "0.27.2",
+    "date-fns": "2.28.0",
+    "jsdom":"16.7.0"
+  }
+}

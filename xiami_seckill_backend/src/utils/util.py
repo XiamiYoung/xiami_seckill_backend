@@ -30,6 +30,8 @@ from utils.log import Logger
 import requests
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_v1_5 as Cipher_pkcs1_v1_5
+import subprocess
+
 
 cacheIns = CacheDao()
 
@@ -420,3 +422,14 @@ def list_item_not_in_str(keyword_list, to_check_str):
                 return False
     
     return True
+
+def is_no_mix_submit_order_mode(keyword, sku_name):
+    keyword_list = keyword.split(',')
+    for keyword in keyword_list:
+        if keyword in sku_name:
+            return True
+    return False
+
+def get_h5st(app_id, function_id, time_long, body):
+    retval = subprocess.check_output(["node", "index.js",app_id,function_id,time_long,body], cwd='h5st')
+    return retval.decode("utf-8").split('h5st:')[1].replace('\n', '')
