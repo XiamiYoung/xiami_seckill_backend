@@ -5,7 +5,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.log.*
-*node_modules*
+node_modules
 
 # C extensions
 *.so
