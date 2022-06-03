@@ -64,6 +64,7 @@ LOCK_KEY_CUSTOM_SKU_DATA = 'user_custom_sku_data_lock_key'
 LOCK_KEY_ADJUST_SERVER_TIME = 'adjust_server_time_lock_key'
 LOCK_KEY_RANDOM_SKU_LIST = 'random_sku_list'
 LOCK_KEY_RANDOM_SKU_STORE = 'random_sku_stock'
+LOCK_KEY_H5ST = 'lock_key_h5st'
 
 # JD constants
 JD_PC_COOKIE_NAME = "jd-pc-cookies"

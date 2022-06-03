@@ -179,7 +179,7 @@ error_dict = {
                 'httpCode': HTTP_CODE_500,
                 'msg': '支付密码不正确'
             },
-            'ADDR_NO_STOCK':{
+            'COUPON_FAILURE':{
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "016",
                 'httpCode': HTTP_CODE_500,
                 'msg': '优惠券获取失败'
@@ -203,6 +203,11 @@ error_dict = {
                 'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "020",
                 'httpCode': HTTP_CODE_500,
                 'msg': '同步订单信息失败'
+            },
+            'H5ST_SERVICE_FAILURE':{
+                'reasonCode': PREFIX_REST + ERROR_TYPE_SECKILL + "021",
+                'httpCode': HTTP_CODE_500,
+                'msg': 'H5ST服务失败'
             }
         }
     }

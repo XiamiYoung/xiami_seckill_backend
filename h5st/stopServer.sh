@@ -1,0 +1,1 @@
+ps -ef | grep h5st.js | grep -v grep | awk '{print $2}' | xargs kill

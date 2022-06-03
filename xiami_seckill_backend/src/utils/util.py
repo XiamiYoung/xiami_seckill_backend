@@ -13,6 +13,7 @@ import time
 import psutil
 import threading
 from urllib.parse import unquote
+from urllib.parse import quote_plus
 from functools import wraps
 from itertools import chain
 from datetime import datetime
@@ -400,6 +401,9 @@ def reboot_server():
 def get_server_uptime():
     return round((time.time() - psutil.boot_time())/60/60, 2)
 
+def url_encode(str):
+    return quote_plus(str)
+
 def url_decode(str):
     return unquote(str)
 
@@ -430,6 +434,6 @@ def is_no_mix_submit_order_mode(keyword, sku_name):
             return True
     return False
 
-def get_h5st(app_id, function_id, time_long, body):
-    retval = subprocess.check_output(["node", "index.js",app_id,function_id,time_long,body], cwd='h5st')
-    return retval.decode("utf-8").split('h5st:')[1].replace('\n', '')
+def get_h5st(request_session, data):
+    retval = request_session.post(url="http://localhost:3000/h5st", json=data).text
+    return retval.split('h5st:')[1].replace('\n', '')
