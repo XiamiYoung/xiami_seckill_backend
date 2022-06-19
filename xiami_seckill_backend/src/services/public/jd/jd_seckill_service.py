@@ -54,7 +54,9 @@ from config.constants import (
     LOCK_KEY_RANDOM_SKU_LIST,
     LOCK_KEY_RANDOM_SKU_STORE,
     LOCK_KEY_H5ST,
-    RANDOM_SKU_FILTER_OUT_LIST
+    LOCK_KEY_TRACEID,
+    RANDOM_SKU_FILTER_OUT_LIST,
+    LOCK_KEY_MARATHON_CREATE_ORDER
 )
 from utils.util import (
     fetch_latency,
@@ -95,7 +97,11 @@ from utils.util import (
     execute_in_thread,
     list_item_not_in_str,
     is_no_mix_submit_order_mode,
-    get_h5st
+    get_h5st,
+    get_traceid,
+    get_uuid,
+    get_random_mobile_user_agent,
+    get_random_ip_address
 )
 
 from utils.token_util import (
@@ -108,13 +114,11 @@ class JDSeckillService(object):
         self.user_agent = DEFAULT_PC_USER_AGENT
         # self.user_agent = get_random_useragent()
         self.defalut_pc_user_agent = DEFAULT_PC_USER_AGENT
-        self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
+        # self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
+        self.mobile_user_agent = get_random_mobile_user_agent()
         self.try_post_failure_in_mins = float(global_config.get('config', 'try_post_failure_in_mins'))
         self.try_post_failure_count = int(global_config.get('config', 'try_post_failure_count'))
         self.try_post_failure_interval = float(global_config.get('config', 'try_post_failure_interval'))
-        self.check_stock_reduced_interval = float(global_config.get('config', 'check_stock_reduced_interval'))
-        self.is_seckill_sold_out_total_count_threshold = int(global_config.get('config', 'is_seckill_sold_out_total_count_threshold'))
-        self.is_seckill_sold_out_interval = float(global_config.get('config', 'is_seckill_sold_out_interval'))
         self.try_post_failure_not_sold_out_interval = float(global_config.get('config', 'try_post_failure_not_sold_out_interval'))
         self.random_stock_check_threshold = int(global_config.get('config', 'random_stock_check_threshold'))
         self.single_stock_check_interval = float(global_config.get('config', 'single_stock_check_interval'))
@@ -289,13 +293,13 @@ class JDSeckillService(object):
 
         jd_user_data = self.jd_user_service.find_jd_user_by_username_and_nick_name(login_username, self.nick_name, is_mask_jd_pwd=True)
 
-        addr_obj = self.get_user_addr()
-        default_addr = self.get_default_addr(addr_obj)
+        addr_obj = self.get_user_addr_pc()
+        default_addr = self.get_default_addr_pc(addr_obj)
 
         # update pc login status
         jd_user_data['nick_name'] = self.nick_name
-        jd_user_data['recipient_name'] = self.get_recipient_by_default_addr(default_addr)
-        jd_user_data['full_addr'] = self.get_full_addr_by_default_addr(default_addr)
+        jd_user_data['recipient_name'] = self.get_recipient_by_default_addr_pc(default_addr)
+        jd_user_data['full_addr'] = self.get_full_addr_by_default_addr_pc(default_addr)
         jd_user_data['pc_cookie_status'] = True
         jd_user_data['pc_cookie_str'] =  json_to_str(requests.utils.dict_from_cookiejar(self.sess.cookies))
         jd_user_data['pc_cookie_ts'] =  get_timestamp_in_milli_sec(get_now_datetime())
@@ -1144,7 +1148,7 @@ class JDSeckillService(object):
             self.log_stream_error('查询 %s 库存信息发生异常, resp: %s, exception: %s', sku_id, resp_text, e)
             raise RestfulException(error_dict['SERVICE']['JD']['STOCK_API_LIMITED'])
 
-    def get_list_item_stock(self, sku_list, num_list, is_raise_error=False):
+    def get_list_item_stock(self, sku_list, num_list, check_price=False):
         self.log_stream_info('查询列表库存')
 
         url = 'https://api.m.jd.com/api'
@@ -1180,7 +1184,25 @@ class JDSeckillService(object):
             resp_text = self.sess.get(url=url, params=payload, headers=headers).text
             resp_json = parse_json(resp_text)
             if 'errcode' in resp_json and resp_json['errcode'] == '0' and 'stockstate' in resp_json:
-                return resp_json
+                if not check_price:
+                    return resp_json
+                else:
+                    sku_id_str = sku_list[0]
+                    in_stock = False
+                    # 检查库存状态
+                    if int(resp_json['stockstate']['data'][sku_id_str]['a']) in (33, 36, 39, 40):
+                        self.log_stream_info('===============================发现库存===========================================')
+                        self.log_stream_info('库存状态: %s', self.stock_state_map[resp_json['stockstate']['data'][sku_id_str]['a']])
+                        in_stock = True
+
+                    # 检查当前价格
+                    current_price = float(resp_json['priceinfo']['data'][sku_id_str]['p'])
+                    self.log_stream_info('当前商品价格: ' + str(current_price)) 
+                    price_resumed = current_price > self.order_price_threshold
+                    if price_resumed:
+                        self.price_resumed = True
+                        self.log_stream_info('购物车价格已恢复原价, 当前价格:%s, 下单价格阈值: %s', current_price, self.order_price_threshold)
+                    return in_stock
             else:
                 self.log_stream_error('查询列表%s库存信息发生异常, resp: %s', str(sku_list), resp_text)
                 self.system_emailer.send(subject='查询列表库存信息发生异常', content='查询列表库存信息发生异常')
@@ -1200,10 +1222,10 @@ class JDSeckillService(object):
         detail_page = self._get_item_detail_page(sku_id=sku_id)
         return '该商品已下柜' in detail_page.text
 
-    def if_item_can_be_ordered(self, round, is_random_check_stock):
+    def if_item_can_be_ordered(self, round, is_random_check_stock, check_price=False):
         sku_id = self.target_sku_id
+        num = self.target_sku_num
         flag = False
-        should_reduce_interval = False
 
         # try:
         #     flag = self.get_single_item_stock(sku_id)
@@ -1222,9 +1244,9 @@ class JDSeckillService(object):
         # else:
         #     flag = self.get_single_item_stock_type_one(sku_id)
 
-        flag = self.get_single_item_stock_type_one(sku_id)
+        flag = self.get_list_item_stock([str(sku_id)],[str(num)], check_price=True)
 
-        return flag, should_reduce_interval
+        return flag
 
     def get_item_price(self, sku_id):
         """获取商品价格
@@ -2797,14 +2819,14 @@ class JDSeckillService(object):
                 self.log_stream_info('更改订单地址失败')
                 return False
             else:
-                self.log_stream_error('更改订单地址成功')
+                self.log_stream_info('更改目标地址成功')
                 return True
         except Exception as e:
             self.log_stream_error(e)
             return False
 
     @fetch_latency
-    def build_submit_order_data(self):
+    def build_submit_order_data(self, target_time=None):
         body_str = json_to_str({
             "deviceUUID": self.visitKey,
             "uuid": self.visitKey,
@@ -2817,9 +2839,9 @@ class JDSeckillService(object):
             "checkPayPassport": True,
             "checkpwdV2": False,
             "isEncryptionMobile": True,
-            "outStockVendorIdList": [],
+            "outStockVendorIdList": [0],
             "mainSkuIdList": [
-                self.target_sku_id
+                int(self.target_sku_id)
             ],
             "balanceDataServerSkuVOList": [
                 {
@@ -3107,7 +3129,10 @@ class JDSeckillService(object):
             }
         })
 
-        time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
+        if target_time:
+            time_long = str(get_timestamp_in_milli_sec(str_to_datetime(target_time)))
+        else:
+            time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
         function_id = 'balance_submitOrder_m'
         app_id_h5st = 'cc85b'
 
@@ -3126,13 +3151,20 @@ class JDSeckillService(object):
             't': time_long,
             'client':'Win32',
             'clientVersion':'1.3.0',
+            # 'd_brand':'Nexus',
+            # 'd_model':'Nexus',
+            'lang':'zh-CN',
+            'networkType':False,
+            # 'osVersion':'AndroidOS',
+            'sdkVersion':'',
+            'uuid':self.visitKey,
             'h5st': h5st
         }
 
         return data
 
     @fetch_latency
-    def build_submit_marathon_order_data(self):
+    def build_submit_marathon_order_data(self, target_time=None):
         body_str = json_to_str({
             "addressid": self.area_ref_id,
             "paytype": 4,
@@ -3150,7 +3182,10 @@ class JDSeckillService(object):
             "traceid": self.trace_id
         })
 
-        time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
+        if target_time:
+            time_long = str(get_timestamp_in_milli_sec(str_to_datetime(target_time)))
+        else:
+            time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
         function_id = 'jxt_miao_confirm'
         app_id_h5st = '394bc'
 
@@ -3374,7 +3409,10 @@ class JDSeckillService(object):
                     thread_count = 4
 
                     for thread_index in range (1, thread_count):
-                        t = threading.Thread(target=self.submit_order_bp, args=(is_multi_thread, self,thread_index))
+                        if self.is_pc_cookie_valid:
+                            t = threading.Thread(target=self.submit_order_pc, args=(is_multi_thread, self,thread_index))
+                        else:
+                            t = threading.Thread(target=self.submit_order_bp, args=(is_multi_thread, self,thread_index))
                         t.daemon = True
                         t.start()
 
@@ -3382,14 +3420,25 @@ class JDSeckillService(object):
                         time.sleep(0.01)
                 else:
                     thread_index = 0
-                    self.submit_order_bp(is_multi_thread, self, thread_index)
+                    if self.is_pc_cookie_valid:
+                        self.submit_order_pc(is_multi_thread, self, thread_index)
+                    else:
+                        self.submit_order_bp(is_multi_thread, self, thread_index)
                 if self.order_id:
-                    self.log_stream_info('第%s次下单成功', i)
+                    if self.is_pc_cookie_valid:
+                        self.log_stream_info('第%s次PC下单成功', i)
+                    else:
+                        self.log_stream_info('第%s次mobile下单成功', i)
                     return self.order_id
                 else:
                     if i <= retry:
-                        self.log_stream_info('第%s次下单失败，%ss后重试', i, interval)
-                        self.create_temp_order_bp(check_price=True)
+                        if self.is_pc_cookie_valid:
+                            self.log_stream_info('第%s次PC下单失败，%ss后重试', i, interval)
+                            self.clear_cart()
+                            self.add_item_to_cart_pc(self.target_sku_id, self.target_sku_num)
+                        else:
+                            self.log_stream_info('第%s次mobile下单失败，%ss后重试', i, interval)
+                            self.create_temp_order_bp(check_price=True)
                         time.sleep(interval)
             else:
                 self.log_stream_info('重试提交%s次结束', retry)
@@ -3631,8 +3680,8 @@ class JDSeckillService(object):
             return False
 
     @fetch_latency
-    def marathon_create_order_mobile(self):
-        sleep_interval = 0.1
+    def marathon_create_order_mobile(self, target_time=None):
+        sleep_interval = 0.5
         url = 'https://api.m.jd.com/api?g_ty=h5&g_tk=&appCode=ms0ca95114'
         headers = {
             'User-Agent': self.mobile_user_agent,
@@ -3640,11 +3689,16 @@ class JDSeckillService(object):
             'referer':'https://wqs.jd.com'
         }
 
+        if target_time:
+            time_long = get_timestamp_in_milli_sec(str_to_datetime(target_time))
+        else:
+            time_long = get_timestamp_in_milli_sec(get_now_datetime())
+
         body_str = json_to_str({
             "cmdylist": [
                 {
-                "itemId": self.target_sku_id,
-                "num": self.target_sku_num
+                "itemId": str(self.target_sku_id),
+                "num": str(self.target_sku_num)
                 }
             ],
             "resetcoupon": "1",
@@ -3652,15 +3706,17 @@ class JDSeckillService(object):
             "toppaychannel": 0,
             "fixednum": "",
             "skulist": "",
+            "sceneval":2,
+            "h5page":1,
+            "buid":325,
+            "time":time_long,
             "traceid": self.trace_id
         })
-
-        time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
 
         data = {
             'appid': 'jx_h5',
             'functionId': 'jxt_miao_orderinfo',
-            't': time_long,
+            't': str(time_long),
             'client':'jxh5',
             'clientVersion':'1.2.5',
             'sceneval': 2,
@@ -3668,6 +3724,7 @@ class JDSeckillService(object):
             'channel': 'jxh5',
             'loginType': 2,
             'loginWQBiz': 'golden-trade',
+            'uuid': get_uuid(),
             'body': body_str
         }
 
@@ -4126,7 +4183,10 @@ class JDSeckillService(object):
     @fetch_latency
     def get_server_datetime(self):
         url = 'https://api.m.jd.com/client.action?functionId=queryMaterialProducts&client=wh5'
-        js = json.loads(self.sess.get(url).text)
+        headers = {
+            'User-Agent': self.user_agent
+        }
+        js = json.loads(self.sess.get(url=url, headers=headers).text)
         t_server = float(js["currentTime2"]) / float(1000)
         t_server_datetime = datetime.fromtimestamp(t_server)
         return t_server_datetime
@@ -4650,7 +4710,7 @@ class JDSeckillService(object):
             self.log_stream_error('PC cookie 无效，略过create_temp_order_traditional')
             return False
 
-    def create_temp_order(self, is_add_cart_item=False):
+    def create_temp_order(self, target_time=None, is_add_cart_item=False):
         order_created = False
         if self.temp_order_traditional:
             self.create_temp_order_traditional(is_add_cart_item)
@@ -4673,7 +4733,7 @@ class JDSeckillService(object):
             # 更改订单地址
             self.update_target_addr()
             # 生成submit order data
-            self.submit_order_bp_data = self.build_submit_order_data()
+            self.submit_order_bp_data = self.build_submit_order_data(target_time)
             self.cart_selected = True
             self.should_skip_submit = False
         else:
@@ -4706,9 +4766,9 @@ class JDSeckillService(object):
                             self.create_temp_order_bp(check_price=True)
                             if not self.failure_msg:
                                 self.failure_msg = "下单价格为非秒杀价，取消订单"
-                            # 购物车准备
-                            # self.pre_order_cart_action()
-                            # self.create_temp_order_traditional(check_price=True)
+                            if self.is_pc_cookie_valid:
+                                # 购物车准备
+                                self.create_temp_order_traditional(is_add_cart_item=True, check_price=True)
                         elif is_send_message and self.emailer:
                             # 等待一段时间，重新获取订单信息判断是否已被删除
                             time.sleep(10)
@@ -4983,12 +5043,48 @@ class JDSeckillService(object):
     #         self.create_temp_order()
 
     def pre_order_cart_action(self, target_time=None, leading_in_sec=None, is_before_start=False):
-        if not self.is_marathon_mode:
-            self.create_temp_order()
+        if self.is_pc_cookie_valid:
+            # 开始前检测库存
+            sku_stock_result= self.get_list_item_stock([str(self.target_sku_id)], [str(self.target_sku_num)])
+            if int(sku_stock_result['stockstate']['data'][self.target_sku_id]['a']) not in (33, 36, 40) :
+                self.log_stream_error('抢购开始前检测出商品已无货，略过下单')
+                self.is_in_stock = False
+                return
+            else:
+                self.log_stream_info('商品有货，继续下单')
+                self.is_in_stock = True
+
+            # 自营商品先加入购物车
+            if self.jd_product:
+                self.log_stream_info('京东自营商品')
+                # 加入购物车
+                added = self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
+                if not added:
+                    self.user_agent = get_random_useragent()
+                    self.clear_cart()
+                    added = self.add_item_to_cart(self.target_sku_id, self.target_sku_num)
+                
+                if not added:
+                    # 商品已变为marathon模式
+                    self.is_marathon_mode = True
+                    return
+
+                # 取消勾选
+                unselected = self.unselect_all_cart_item_pc()
+                if not unselected:
+                    self.user_agent = get_random_useragent()
+                    self.unselect_all_cart_item_pc()
+                
+            # 同步订单设置
+            self.sync_order_setting()
         else:
-            self.trace_id = str(random.randint(10000000000000000, 99999999999999999))
-            self.update_target_addr_on_item_page()
-            self.marathon_data = self.build_submit_marathon_order_data()
+            if not self.is_marathon_mode:
+                self.create_temp_order(target_time)
+            else:
+                self.update_target_addr_on_item_page()
+                self.trace_id = self.send_traceid_request(self.sess)
+                self.marathon_order_created = self.marathon_create_order_mobile(target_time)
+                self.marathon_data = self.build_submit_marathon_order_data(target_time)
 
     def actions_before_target_time(self, target_time):
 
@@ -5050,7 +5146,7 @@ class JDSeckillService(object):
         sleep_interval = 1
         is_before_start = True
         title = '抢购前[{0}]秒购物车准备'.format(leading_in_sec)
-        self.call_function_with_leading_time(title, sleep_interval, self.pre_order_cart_action, target_time, leading_in_sec, is_before_start)
+        self.call_function_with_leading_time(title, sleep_interval, self.pre_order_cart_action, adjusted_target_time, leading_in_sec, is_before_start)
 
         # 设置取消检查点
         if not self.execution_keep_running:
@@ -5097,6 +5193,15 @@ class JDSeckillService(object):
             self.log_stream_info('使用user agent')
             self.log_stream_info(self.user_agent)
 
+            self.log_stream_info('使用mobile user agent')
+            self.log_stream_info(self.mobile_user_agent)
+
+            # self.random_ip = get_random_ip_address()
+            # self.log_stream_info('使用随机ip')
+            # self.log_stream_info(self.random_ip)
+
+            
+
             # 等待随机秒，避免cookie错误
             random_wait = random.randint(0, 10)
             self.log_stream_info('等待%s秒检查用户cookie', random_wait)
@@ -5118,6 +5223,12 @@ class JDSeckillService(object):
             self.create_order_error_count = 0
             # 重置库存状态
             self.is_in_stock = True
+            # 重置价格状态
+            self.price_resumed = False
+            # 重置marathon订单状态
+            self.marathon_order_created = False
+            # 重置marathon trace_id
+            self.trace_id = ''
 
             # 检查传入参数
             self.validate_params(sku_id, num)
@@ -5190,6 +5301,8 @@ class JDSeckillService(object):
             self.log_stream_info('下单价格阈值           %s元', self.get_target_product_price_threshold())
             self.log_stream_info('提前下单时间           %sms', self.order_leading_in_millis)
             
+            if self.is_pc_cookie_valid:
+                self.add_item_to_cart_pc(sku_id, num)
             #  清空购物车
             self.log_stream_info('清空购物车')
             self.clear_cart()
@@ -5199,9 +5312,10 @@ class JDSeckillService(object):
             # 获取cookie用户信息
             cookies = self._get_user_info_from_cookie()
 
-            # self.user_id = cookies['user-key']
             self.jxsid = cookies['jxsid']
             self.visitKey = cookies['visitkey']
+            if self.is_pc_cookie_valid:
+                self.user_id = cookies['user-key']
 
             self.log_stream_info('==========================初始化抢购完毕=================================')
         except Exception as e:
@@ -5249,9 +5363,11 @@ class JDSeckillService(object):
                 return []
 
             # marathon下单增加提前时间
-            if self.is_marathon_mode:
-                self.log_stream_error('Marathon模式, 时间再次提前')
-                self.adjust_leading_time_once(adjusted_target_time, leading_time_in_millies = 50)
+            # if not self.is_pc_cookie_valid:
+            #     if self.is_marathon_mode:
+            #         self.log_stream_error('Marathon模式, 时间再次提前')
+            #         self.adjust_leading_time_once(adjusted_target_time, leading_time_in_millies = 50)
+
 
             # 等待到下单时间
             title = '抢购'
@@ -5261,35 +5377,40 @@ class JDSeckillService(object):
                 self.execution_keep_running = False
                 return []
 
-            # # 如果是PC模式 重新创建订单
-            # if self.is_pc_cookie_valid and not self.is_marathon_mode:
-            #     if self.jd_product and not self.is_no_mix_submit_order_mode:
-            #         self.create_temp_order_traditional(is_add_cart_item=False, check_price=True)
-            #         self.price_resumed = False
-            #     else:
-            #         self.cart_selected = True
-            #         self.create_temp_order_bp_after_start(self.target_sku_id, self.target_sku_num)
+            # 如果是PC模式 重新创建订单
+            if self.is_pc_cookie_valid and not self.is_marathon_mode:
+                if self.jd_product and not self.is_no_mix_submit_order_mode:
+                    self.create_temp_order_traditional(is_add_cart_item=False, check_price=False)
+                    self.price_resumed = False
+                else:
+                    self.cart_selected = True
+                    self.create_temp_order_bp_after_start(self.target_sku_id, self.target_sku_num)
 
             if self.is_marathon_mode:
-                self.log_stream_info('===============================购物车准备===================================')
-                order_created = False
-                while not order_created and self.create_order_error_count < 10:
-                    self.log_stream_info("第%s次创建marathon订单", self.create_order_error_count + 1)
-                    order_created = self.marathon_create_order_mobile()
-                    if not order_created:
-                        self.log_stream_error('第%s次通过BP链接创建marathon订单失败', self.create_order_error_count + 1)
-                        self.create_order_error_count += 1
-                        if not self.execution_keep_running:
-                            self.create_order_error_count = 0
-                            return False
-                    else:
-                        self.log_stream_info("第%s次创建marathon订单成功", self.create_order_error_count + 1)
-            
-                if not order_created:
-                    self.log_stream_error('Marathon模式无法创建订单，略过提交')
-                    if not self.failure_msg:
-                        self.failure_msg = "Marathon模式无法创建订单，略过提交"
-                    return []
+                if not self.marathon_order_created:
+                    # 每5秒只有3个请求可以创建订单
+                    total_count = 200 
+                    self.log_stream_info('===============================购物车准备===================================')
+                    while not self.marathon_order_created and self.create_order_error_count < total_count:
+                        
+                        self.log_stream_info("第%s次创建marathon订单", self.create_order_error_count + 1)
+                        self.marathon_order_created = self.marathon_create_order_mobile()
+                        if not self.marathon_order_created:
+                            self.log_stream_error('第%s次通过BP链接创建marathon订单失败', self.create_order_error_count + 1)
+                            self.create_order_error_count += 1
+                            if not self.execution_keep_running:
+                                self.create_order_error_count = 0
+                                return False
+                        else:
+                            self.log_stream_info("第%s次创建marathon订单成功", self.create_order_error_count + 1)
+                
+                    if not self.marathon_order_created:
+                        self.log_stream_error('Marathon模式无法创建订单，略过提交')
+                        if not self.failure_msg:
+                            self.failure_msg = "Marathon模式无法创建订单，略过提交"
+                        return []
+                else:
+                    self.log_stream_info('===============================marathon订单已创建===================================')
 
             self.log_stream_info('===============================提交订单===================================')
 
@@ -5299,7 +5420,7 @@ class JDSeckillService(object):
             order_id = ''
             if not self.is_debug_mode:
                 if not self.is_marathon_mode:
-                    if self.should_skip_submit:
+                    if not self.is_pc_cookie_valid and self.should_skip_submit:
                         self.log_stream_error('BP模式无法创建订单，略过提交')
                         if not self.failure_msg:
                             self.failure_msg = "BP模式无法创建订单，略过提交"
@@ -5310,6 +5431,7 @@ class JDSeckillService(object):
                         submit_retry_count = 1
                         submit_interval = 0.1
                         is_multi_thread = False
+                        # order_id = ''
                         order_id = self.submit_order_with_retry(is_multi_thread, submit_retry_count, submit_interval)
                     else:
                         self.log_stream_error('购物车选中失败，略过混合订单提交，尝试重新添加购物车')
@@ -5391,7 +5513,7 @@ class JDSeckillService(object):
                 if now_time_with_offset > try_until_datetime:
                     break
                 else:
-                    self.if_item_can_be_ordered(round=round, is_random_check_stock=True)
+                    self.if_item_can_be_ordered(round=round, is_random_check_stock=True, check_price=True)
                     if self.price_resumed:
                         self.log_stream_info("商品%s已恢复非秒杀价，无需继续刷新，程序退出", self.target_sku_id)
                         return []
@@ -5419,23 +5541,9 @@ class JDSeckillService(object):
         :param try_in_mins: 抢购失败后继续尝试下单多少分钟
         :return:
         """
-        refresh_order_interval = 1000
-        refresh_order_count = 1
-
-        # 每多少次库存检测之后测试是否秒杀售出率
-        is_seckill_sold_out_interval = self.is_seckill_sold_out_interval
-        is_seckill_sold_out_count = 0
-
-        # 多少次秒杀售出率100%后退出检测
-        is_seckill_sold_out_total_count = 1
-        is_seckill_sold_out_total_count_threshold = self.is_seckill_sold_out_total_count_threshold
         total_check_stock_count = 1
 
-        check_stock_reduced_interval = self.check_stock_reduced_interval
-        original_stock_interval = stock_interval
-
         is_random_check_stock = True
-        is_reduced_frequency = False
 
         order_id_list = []
         sku_id = self.target_sku_id
@@ -5464,51 +5572,24 @@ class JDSeckillService(object):
                         should_countinue = False
                         self.price_resumed = False
                         return []
-                    if is_seckill_sold_out_count == 0 or is_seckill_sold_out_count == is_seckill_sold_out_interval:
-                        if is_seckill_sold_out_count == is_seckill_sold_out_interval:
-                            is_seckill_sold_out_count = 0
-                        is_seckill_item_sold_out = self.is_seckill_item_sold_out(sku_id)
-                        if is_seckill_item_sold_out:
-                            self.log_stream_info('商品%s 秒杀价售出率: [%s]', sku_id, str(is_seckill_item_sold_out))
-                        else:
-                            self.log_stream_info('商品%s 秒杀价售出率检测失败', sku_id)
-                        if is_seckill_item_sold_out == 100 or not is_seckill_item_sold_out:
-                            if is_seckill_sold_out_total_count != is_seckill_sold_out_total_count_threshold:
-                                self.log_stream_info('第[%s/%s]次检测到商品%s 秒杀价全部售出或检测售出率失败, 继续刷新库存', is_seckill_sold_out_total_count, is_seckill_sold_out_total_count_threshold, sku_id)
-                                is_seckill_sold_out_total_count += 1
-                            else:
-                                self.log_stream_info('第[%s/%s]次检测到商品%s 秒杀价全部售出或检测售出率失败, 退出继续下单模式', is_seckill_sold_out_total_count, is_seckill_sold_out_total_count_threshold, sku_id)
-                                should_countinue = False
-                                continue
-                is_seckill_sold_out_count += 1      
 
                 # 检查库存
-                if total_check_stock_count <= self.try_post_failure_count:
+                if total_check_stock_count < self.try_post_failure_count:
                     self.log_stream_info('[%s/%s]检测商品%s 库存', total_check_stock_count, self.try_post_failure_count, sku_id)
                     total_check_stock_count += 1
                 else:
-                    # 检查库存结束，如果秒杀商品没有全部售出，降低频率继续刷新
-                    if item['is_seckill_product']:
-                        is_seckill_item_sold_out = self.is_seckill_item_sold_out(sku_id)
-                        if is_seckill_item_sold_out == 100:
-                            self.log_stream_info('[%s/%s]检测商品%s 库存无货，秒杀商品全部售出, 退出继续下单模式', total_check_stock_count, self.try_post_failure_count, sku_id)
-                            should_countinue = False
-                            continue
-                        else:
-                            total_check_stock_count = 1
-                            stock_interval = self.try_post_failure_not_sold_out_interval
-                            is_reduced_frequency = True
-                            self.log_stream_info('商品没有全部售出，重置库存刷新计数，每%s秒刷新一次库存', stock_interval)
-                    else:
-                        should_countinue = False
-                        continue
+                    # 检查库存结束
+                    self.log_stream_info('[%s/%s]检测商品%s 库存无货 退出继续下单模式', total_check_stock_count, self.try_post_failure_count, sku_id)
+                    should_countinue = False
+                    continue
+
                 # 检查库存
                 is_can_be_ordered = False
                 try:
                     # 刷新库存大于阈值以后 切换为单接口模式
                     if total_check_stock_count > self.random_stock_check_threshold:
                         is_random_check_stock = False
-                    is_can_be_ordered, should_reduce_interval = self.if_item_can_be_ordered(round=total_check_stock_count, is_random_check_stock=is_random_check_stock)
+                    is_can_be_ordered = self.if_item_can_be_ordered(round=total_check_stock_count, is_random_check_stock=is_random_check_stock)
                 except Exception as e:
                     self.log_stream_error(e)
                     self.log_stream_info('查询库存api触发流量限制，切换检查库存方式')
@@ -5518,24 +5599,10 @@ class JDSeckillService(object):
                     is_random_check_stock = False
                     stock_interval = self.single_stock_check_interval
                 if not is_can_be_ordered:
-                    # 如果没有全部售出, 则使用高频率刷新库存
-                    if not is_reduced_frequency:
-                        if should_reduce_interval:
-                            stock_interval = stock_interval - check_stock_reduced_interval
-                            if stock_interval < 0:
-                                stock_interval = 0
-                        else:
-                            stock_interval = original_stock_interval
-                    
                     self.log_stream_info('%s 没有库存，%ss后重试 ', sku_id, stock_interval)
                     if not sleep_with_check(stock_interval, self.execution_cache_key):
                         self.execution_keep_running = False
                         return []
-
-                    refresh_order_count = refresh_order_count + 1
-                    if refresh_order_count == refresh_order_interval:
-                        self.get_order_coupons()
-                        refresh_order_count = 0
                 else:
                     self.log_stream_info('%s 发现库存，开始下单', sku_id)
 
@@ -6392,6 +6459,52 @@ class JDSeckillService(object):
                 self.failure_msg = 'h5st服务失败'
                 if self.emailer:
                     self.emailer.send(subject='h5st服务失败', content='h5st服务失败')
+            raise RestfulException(error_dict['SERVICE']['JD']['H5ST_SERVICE_FAILURE'])
+        finally:
+            try:
+                if lock and lock.locked():
+                    lock.release()
+            except Exception as e:
+                pass
+
+    @fetch_latency
+    def send_traceid_request(self,request_session):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_TRACEID)
+        try:
+            while not lock.acquire(blocking=False):
+                time.sleep(0.05)
+            traceid_value = get_traceid(request_session)
+            if lock.locked():
+                lock.release()
+            return traceid_value
+        except Exception as e:
+            if not self.failure_msg:
+                self.failure_msg = 'traceid服务失败'
+                if self.emailer:
+                    self.emailer.send(subject='traceid服务失败', content='traceid服务失败')
+            raise RestfulException(error_dict['SERVICE']['JD']['H5ST_SERVICE_FAILURE'])
+        finally:
+            try:
+                if lock and lock.locked():
+                    lock.release()
+            except Exception as e:
+                pass
+
+    @fetch_latency
+    def send_marathon_create_order_request(self):
+        lock = redis_lock.Lock(self.cache_dao.get_cache_client(), LOCK_KEY_MARATHON_CREATE_ORDER)
+        try:
+            while not lock.acquire(blocking=False):
+                time.sleep(0.001)
+            created = self.marathon_create_order_mobile()
+            if lock.locked():
+                lock.release()
+            return created
+        except Exception as e:
+            if not self.failure_msg:
+                self.failure_msg = 'cache marathon创建order失败'
+                if self.emailer:
+                    self.emailer.send(subject='cache marathon创建order失败', content='cache marathon创建order失败')
             raise RestfulException(error_dict['SERVICE']['JD']['H5ST_SERVICE_FAILURE'])
         finally:
             try:

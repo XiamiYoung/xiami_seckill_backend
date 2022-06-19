@@ -11,6 +11,7 @@ import random
 import math
 import time
 import psutil
+import uuid
 import threading
 from urllib.parse import unquote
 from urllib.parse import quote_plus
@@ -24,8 +25,11 @@ from random_user_agent.params import SoftwareName, OperatingSystem
 from daos.cache.redis import CacheDao
 from config.constants import (
     RSA_PUBLIC_KEY,
-    DATETIME_STR_PATTERN
+    DATETIME_STR_PATTERN,
+    MOBILE_UA_LIST,
+    SERVER_IP_PREFIX
 )
+
 from utils.log import Logger
 
 import requests
@@ -437,3 +441,19 @@ def is_no_mix_submit_order_mode(keyword, sku_name):
 def get_h5st(request_session, data):
     retval = request_session.post(url="http://localhost:3000/h5st", json=data).text
     return retval.split('h5st:')[1].replace('\n', '')
+
+def get_traceid(request_session):
+    retval = request_session.post(url="http://localhost:3000/get_traceid").text
+    return retval.replace('\n', '')
+
+
+def get_uuid():
+    return str(uuid.uuid4())
+
+def get_random_mobile_user_agent():
+    length = len(MOBILE_UA_LIST)
+    index_ran = random.randint(0, length-1)
+    return MOBILE_UA_LIST[index_ran]
+
+def get_random_ip_address():
+    return SERVER_IP_PREFIX + "." + str(random.randint(1, 200)) + "." + str(random.randint(1, 200))

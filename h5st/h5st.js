@@ -7,9 +7,11 @@ var capcon = require('capture-console');
 var app = express();
 app.use(express.json());
 
-var security_js = fs.readFileSync('./js_security_v3.js');
-var calculate_js_original = fs.readFileSync('./calculate.js');
-var dom = new JSDOM('<body><script>'  + security_js + '</script></body>', {url: "https:/asdf213123eassad.com/", runScripts: "dangerously"});
+var security_js = fs.readFileSync('./js_security_v3.js').toString();
+var calculate_js_original = fs.readFileSync('./calculate.js').toString();
+var calculate_traceid_js = fs.readFileSync('./get_traceid.js').toString();
+var marathon_trace_id_js_original = fs.readFileSync('./marathon_traceid.js').toString();
+var dom = new JSDOM('<body><script>'  + security_js + marathon_trace_id_js_original +'</script></body>', {url: "https:/asdf213123eassad.com/", runScripts: "dangerously"});
 global.window = dom.window
 
 function get_h5st(){
@@ -55,6 +57,16 @@ app.post('/h5st', function(request, response){
 
     setTimeout(function(){ response.send(output) }, 300);
 
+});
+
+app.post('/traceid', function(request, response){
+    var output = '';
+    capcon.startCapture(process.stdout, function (stdout) {
+        output += stdout;
+    });
+    dom.window.eval(calculate_traceid_js);
+
+    setTimeout(function(){ response.send(output) }, 300);
 });
 
 app.listen(3000);
