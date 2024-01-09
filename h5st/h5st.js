@@ -7,7 +7,7 @@ var capcon = require('capture-console');
 var app = express();
 app.use(express.json());
 
-var security_js = fs.readFileSync('./js_security_v3.js').toString();
+var security_js = fs.readFileSync('./js_security_v3_0.1.4.js').toString();
 var calculate_js_original = fs.readFileSync('./calculate.js').toString();
 var calculate_traceid_js = fs.readFileSync('./get_traceid.js').toString();
 var marathon_trace_id_js_original = fs.readFileSync('./marathon_traceid.js').toString();
@@ -18,14 +18,10 @@ function get_h5st(){
     var temp_calculate_js = calculate_js_original
     
     var appId = "dummy";
-    var functionId = "dummy";
-    var time = 1;
-    var body = "dummy";
+    var body = {'foo':'bar'};
 
-    temp_calculate_js = temp_calculate_js.toString().replace(/input_body/g,body)
-    temp_calculate_js = temp_calculate_js.toString().replace(/input_time/g,time)
+    temp_calculate_js = temp_calculate_js.toString().replace(/input_body/g,JSON.stringify(body))
     temp_calculate_js = temp_calculate_js.toString().replace(/input_app_id/g,appId)
-    temp_calculate_js = temp_calculate_js.toString().replace(/input_function_id/g,functionId)
 
     var output = '';
     capcon.startCapture(process.stdout, function (stdout) {
@@ -39,14 +35,10 @@ function get_h5st(){
 app.post('/h5st', function(request, response){
     var temp_calculate_js = calculate_js_original
     var appId = request.body.appId;
-    var functionId = request.body.functionId;
-    var time = request.body.time;
     var body = request.body.body;
 
-    temp_calculate_js = temp_calculate_js.toString().replace(/input_body/g,body)
-    temp_calculate_js = temp_calculate_js.toString().replace(/input_time/g,time)
+    temp_calculate_js = temp_calculate_js.toString().replace(/input_body/g,JSON.stringify(body))
     temp_calculate_js = temp_calculate_js.toString().replace(/input_app_id/g,appId)
-    temp_calculate_js = temp_calculate_js.toString().replace(/input_function_id/g,functionId)
 
     var output = '';
     capcon.startCapture(process.stdout, function (stdout) {
@@ -55,7 +47,7 @@ app.post('/h5st', function(request, response){
     
     dom.window.eval(temp_calculate_js);
 
-    setTimeout(function(){ response.send(output) }, 300);
+    setTimeout(function(){ response.send(output) }, 0);
 
 });
 
@@ -66,7 +58,7 @@ app.post('/traceid', function(request, response){
     });
     dom.window.eval(calculate_traceid_js);
 
-    setTimeout(function(){ response.send(output) }, 300);
+    setTimeout(function(){ response.send(output) }, 0);
 });
 
 app.listen(3000);

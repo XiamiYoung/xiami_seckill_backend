@@ -1,0 +1,1 @@
+var PSign = new ParamsSign({appId:"input_app_id"})

@@ -11,8 +11,7 @@
             "program": "${workspaceFolder}\\manage.py",
             "args": [
                 "runserver",
-                "7366",
-                "--noasgi"
+                "7366"
             ],
             "django": true
         }

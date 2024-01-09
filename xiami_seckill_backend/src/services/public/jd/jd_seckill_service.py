@@ -114,8 +114,8 @@ class JDSeckillService(object):
         self.user_agent = DEFAULT_PC_USER_AGENT
         # self.user_agent = get_random_useragent()
         self.defalut_pc_user_agent = DEFAULT_PC_USER_AGENT
-        # self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
-        self.mobile_user_agent = get_random_mobile_user_agent()
+        self.mobile_user_agent = DEFAULT_MOBILE_USER_AGENT
+        # self.mobile_user_agent = get_random_mobile_user_agent()
         self.try_post_failure_in_mins = float(global_config.get('config', 'try_post_failure_in_mins'))
         self.try_post_failure_count = int(global_config.get('config', 'try_post_failure_count'))
         self.try_post_failure_interval = float(global_config.get('config', 'try_post_failure_interval'))
@@ -2826,6 +2826,78 @@ class JDSeckillService(object):
             return False
 
     @fetch_latency
+    def build_create_order_data(self, target_time=None):
+        body_str = json_to_str({
+            "deviceUUID": self.visitKey,
+            "uuid": self.visitKey,
+            "appId": "wxae3e8056daea8727",
+            "tenantCode": "jgm",
+            "bizModelCode": "3",
+            "bizModeClientType": "M",
+            "token": "3852b12f8c4d869b7ed3e2b3c68c9436",
+            "externalLoginType": 1,
+            "balanceCommonOrderForm": {
+                "action": 1,
+                "overseaMerge": False,
+                "international": False,
+                "netBuySourceType": 0,
+                "appVersion": "1.3.0",
+                "supportTransport": False
+            },
+            "resetGsd": True,
+            "useBestCoupon": "1",
+            "addressId": self.area_ref_id,
+            "locationId": self.area_id,
+            "cartParam": {
+                "skuItem": {
+                    "skuId": self.target_sku_id,
+                    "num": "1"
+                }
+            },
+            "packageStyle": True,
+            "sceneval": "2",
+            "balanceDeviceInfo": {
+                "resolution": "1920*513"
+            }
+        })
+
+        if target_time:
+            time_long = str(get_timestamp_in_milli_sec(str_to_datetime(target_time)))
+        else:
+            time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
+
+        function_id = 'balance_getCurrentOrder_m'
+        app_id_h5st = 'bd265'
+
+
+        h5st_data = {
+            "appId": app_id_h5st,
+            "functionId": function_id,
+            "time": int(time_long),
+            "body":body_str
+        }
+        h5st = self.send_h5st_request(self.sess, h5st_data)
+
+        data = {
+            'appid': 'm_core',
+            'functionId': function_id,
+            'body': body_str,
+            't': time_long,
+            'client':'Win32',
+            'clientVersion':'1.3.0',
+            'd_brand':'Nexus',
+            'd_model':'Nexus',
+            'lang':'zh-CN',
+            'networkType':False,
+            'osVersion':'AndroidOS',
+            'sdkVersion':'',
+            'screen': '525*1632',
+            'h5st': h5st
+        }
+
+        return data
+
+    @fetch_latency
     def build_submit_order_data(self, target_time=None):
         body_str = json_to_str({
             "deviceUUID": self.visitKey,
@@ -2988,7 +3060,7 @@ class JDSeckillService(object):
                 },
                 {
                 "paramName": "ext9",
-                "paramVal": "0|0|0|0|0||0|0"
+                "paramVal": "1|600|0|0|0||0|0"
                 },
                 {
                 "paramName": "ext10",
@@ -3133,6 +3205,7 @@ class JDSeckillService(object):
             time_long = str(get_timestamp_in_milli_sec(str_to_datetime(target_time)))
         else:
             time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
+
         function_id = 'balance_submitOrder_m'
         app_id_h5st = 'cc85b'
 
@@ -3151,13 +3224,14 @@ class JDSeckillService(object):
             't': time_long,
             'client':'Win32',
             'clientVersion':'1.3.0',
-            # 'd_brand':'Nexus',
-            # 'd_model':'Nexus',
+            'd_brand':'Nexus',
+            'd_model':'Nexus',
             'lang':'zh-CN',
             'networkType':False,
-            # 'osVersion':'AndroidOS',
+            'osVersion':'AndroidOS',
             'sdkVersion':'',
             'uuid':self.visitKey,
+            'screen': '525*1632',
             'h5st': h5st
         }
 
@@ -3230,7 +3304,8 @@ class JDSeckillService(object):
             'User-Agent': self.mobile_user_agent,
             'Referer': 'https://wqs.jd.com/',
             'origin': 'https://wqs.jd.com',
-            'content-type': 'application/x-www-form-urlencoded'
+            'content-type': 'application/x-www-form-urlencoded',
+            'accept':'application/json, text/plain, */*'
         }
 
         try:
@@ -4586,16 +4661,16 @@ class JDSeckillService(object):
                 return False
             return False
 
-
     @fetch_latency
-    def create_temp_order_bp(self, check_price=False):
+    def create_temp_order_atmosphere_bp(self):
         sleep_interval = 2
 
         url = 'https://api.m.jd.com/client.action'
         headers = {
             'User-Agent': self.mobile_user_agent,
             'origin':'https://wqs.jd.com',
-            'referer':'https://wqs.jd.com'
+            'referer':'https://wqs.jd.com',
+            'accept':'application/json, text/plain, */*'
         }
 
         body_str = json_to_str({
@@ -4607,6 +4682,10 @@ class JDSeckillService(object):
             "bizModeClientType": "M",
             "token": "3852b12f8c4d869b7ed3e2b3c68c9436",
             "externalLoginType": 1,
+            "skuId": str(self.target_sku_id),
+            "favorablerate": "97",
+            "packageStyle": True,
+            "sceneval": "2",
             "balanceCommonOrderForm": {
                 "action": 1,
                 "overseaMerge": False,
@@ -4615,35 +4694,13 @@ class JDSeckillService(object):
                 "appVersion": "1.3.0",
                 "supportTransport": False
             },
-            "resetGsd": True,
-            "useBestCoupon": "1",
-            "addressId": self.area_ref_id,
-            "locationId": self.area_id,
-            "cartParam": {
-                "skuItem": {
-                    "skuId": self.target_sku_id,
-                    "num": "1"
-                }
-            },
-            "packageStyle": True,
-            "sceneval": "2",
             "balanceDeviceInfo": {
-                "resolution": "1920*513"
+                "resolution": "1632*525"
             }
         })
 
         time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
-        function_id = 'balance_getCurrentOrder_m'
-        app_id_h5st = 'bd265'
-
-
-        h5st_data = {
-            "appId": app_id_h5st,
-            "functionId": function_id,
-            "time": int(time_long),
-            "body":body_str
-        }
-        h5st = self.send_h5st_request(self.sess, h5st_data)
+        function_id = 'balance_getAtmosphere_m'
 
         data = {
             'appid': 'm_core',
@@ -4652,10 +4709,47 @@ class JDSeckillService(object):
             't': time_long,
             'client':'Win32',
             'clientVersion':'1.3.0',
-            'h5st': h5st
+            'd_brand':'Nexus',
+            'd_model':'Nexus',
+            'lang':'zh-CN',
+            'networkType':False,
+            'osVersion':'AndroidOS',
+            'sdkVersion':'',
+            'screen': '525*1632',
+            'uuid':self.visitKey
         }
 
         resp = self.sess.get(url, params=data, headers=headers)
+        try:
+            resp_text = resp.text
+            resp_json = parse_json(resp_text)
+            if not response_status(resp) or 'message' not in resp_json or resp_json['message'] != 'success' or 'code' not in resp_json or resp_json['code'] != '0':
+                self.log_stream_error(resp.text)
+                self.log_stream_info('创建订单atmosphere错误，可能是刷新频率过高，休息%ss', sleep_interval)
+                if not sleep_with_check(sleep_interval, self.execution_cache_key):
+                    self.execution_keep_running = False
+                    return False
+            return True
+        except Exception as e:
+            self.log_stream_error('发现异常，创建订单atmosphere错误, resp: %s, exception: %s', resp.text, e)
+            if not sleep_with_check(sleep_interval, self.execution_cache_key):
+                self.execution_keep_running = False
+                return False
+            return False
+
+    @fetch_latency
+    def create_temp_order_bp(self, check_price=False):
+        sleep_interval = 2
+
+        url = 'https://api.m.jd.com/client.action'
+        headers = {
+            'User-Agent': self.mobile_user_agent,
+            'origin':'https://wqs.jd.com',
+            'referer':'https://wqs.jd.com',
+            'accept':'application/json, text/plain, */*'
+        }
+
+        resp = self.sess.get(url, params=self.create_order_bp_data, headers=headers)
         try:
             resp_text = resp.text
             resp_json = parse_json(resp_text)
@@ -4714,6 +4808,8 @@ class JDSeckillService(object):
         order_created = False
         if self.temp_order_traditional:
             self.create_temp_order_traditional(is_add_cart_item)
+
+        # self.create_temp_order_atmosphere_bp()
         while not order_created and self.create_order_error_count < 10:
           self.log_stream_info("第%s次通过BP链接创建订单", self.create_order_error_count + 1)
           order_created = self.create_temp_order_bp()
@@ -4730,10 +4826,8 @@ class JDSeckillService(object):
             self.cancel_select_red_packet()
             # 取消使用京豆
             self.cancel_select_bean()
-            # 更改订单地址
-            self.update_target_addr()
-            # 生成submit order data
-            self.submit_order_bp_data = self.build_submit_order_data(target_time)
+            # # 更改订单地址
+            # self.update_target_addr()
             self.cart_selected = True
             self.should_skip_submit = False
         else:
@@ -5079,12 +5173,17 @@ class JDSeckillService(object):
             self.sync_order_setting()
         else:
             if not self.is_marathon_mode:
-                self.create_temp_order(target_time)
+                self.create_temp_order()
             else:
                 self.update_target_addr_on_item_page()
                 self.trace_id = self.send_traceid_request(self.sess)
-                self.marathon_order_created = self.marathon_create_order_mobile(target_time)
                 self.marathon_data = self.build_submit_marathon_order_data(target_time)
+
+    def generate_bp_request_data(self, target_time=None, leading_in_sec=None):
+        # 生成 create order data
+        self.create_order_bp_data = self.build_create_order_data(target_time)
+        # 生成submit order data
+        self.submit_order_bp_data = self.build_submit_order_data(target_time)
 
     def actions_before_target_time(self, target_time):
 
@@ -5141,9 +5240,24 @@ class JDSeckillService(object):
         if not self.execution_keep_running:
             return False
 
+        # mobile 模式 提前创建订单提交信息
+        if not self.is_pc_cookie_valid:
+            # 开始前leading_in_sec# 购物车准备
+            leading_in_sec = 5
+            sleep_interval = 1
+            title = '抢购前[{0}]秒购物车准备'.format(leading_in_sec)
+            self.call_function_with_leading_time(title, sleep_interval, self.generate_bp_request_data, adjusted_target_time, leading_in_sec)
+
+            # 设置取消检查点
+            if not self.execution_keep_running:
+                return False
+
         # 开始前leading_in_sec# 购物车准备
-        leading_in_sec = 20
-        sleep_interval = 1
+        leading_in_sec = 1
+        sleep_interval = 0.001
+        if self.is_pc_cookie_valid:
+            leading_in_sec = 20
+            sleep_interval = 1
         is_before_start = True
         title = '抢购前[{0}]秒购物车准备'.format(leading_in_sec)
         self.call_function_with_leading_time(title, sleep_interval, self.pre_order_cart_action, adjusted_target_time, leading_in_sec, is_before_start)
@@ -5385,6 +5499,8 @@ class JDSeckillService(object):
                 else:
                     self.cart_selected = True
                     self.create_temp_order_bp_after_start(self.target_sku_id, self.target_sku_num)
+            else:
+                pass
 
             if self.is_marathon_mode:
                 if not self.marathon_order_created:
@@ -5664,7 +5780,7 @@ class JDSeckillService(object):
                                     return []
             else:
                 # marathon模式
-                submit_retry_count = 50
+                submit_retry_count = 1
                 submit_current_count = 0
                 while submit_current_count < submit_retry_count:
                     self.log_stream_info("第%s次通过marathon模式提交订单", submit_current_count + 1)
@@ -6286,7 +6402,7 @@ class JDSeckillService(object):
                 }
             else:
                 # get seckill items
-                resp_json = self.batch_load_seckill_gid()
+                resp_json = self.batch_load_seckill_gid_with_retry()
                 arrange_list = resp_json['groups']
                 now_dt = get_now_datetime()
                 now_dt_ts = get_timestamp_in_milli_sec(now_dt)
@@ -6302,7 +6418,8 @@ class JDSeckillService(object):
                     gid = item['gid']
 
                     # 时间段解析
-                    resp_json_each_gid = self.batch_load_seckill_gid(gid)
+                    resp_json_each_gid = self.batch_load_seckill_gid_with_retry(gid)
+
                     parsed_resp_json_each_gid = []
                     for seckill_item in resp_json_each_gid['miaoShaList']:
                         if not 'tagText' in seckill_item:
@@ -6326,12 +6443,13 @@ class JDSeckillService(object):
                                 seckill_item['imageurl'] = 'https:' + seckill_item['imageurl']
                                 seckill_item['rate'] = seckill_item['rate'].replace('折','')
                                 if 'wareId' in seckill_item:
-                                    item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True, is_check_stock = False)
-                                    seckill_item['isReserveProduct'] = item_info['is_reserve_product']
-                                    seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
-                                    seckill_item['outOfStock'] = item_info['out_of_stock']
-                                    seckill_item['stockInfo'] = item_info['stock_info']
-                                    seckill_item['isMarathonProduct'] = item_info['is_marathon_product']
+                                    # item_info = self.get_item_detail_info(seckill_item['wareId'], is_wait_for_limit=True, is_check_stock = False)
+                                    # seckill_item['isReserveProduct'] = item_info['is_reserve_product']
+                                    # seckill_item['isFreeDelivery'] = item_info['is_free_delivery']
+                                    # seckill_item['outOfStock'] = item_info['out_of_stock']
+                                    # seckill_item['stockInfo'] = item_info['stock_info']
+                                    # seckill_item['isMarathonProduct'] = item_info['is_marathon_product']
+                                    pass
                                     # seckill_item['disableCoupon'] = item_info['disableCoupon']
                                     # seckill_item['list_price'] =  item_info['list_price']
                                 else:
@@ -6362,27 +6480,49 @@ class JDSeckillService(object):
                 'parsed_predict_list': parsed_predict_list
             }
 
+    def batch_load_seckill_gid_with_retry(self, gid=''):
+        ret = ''
+        retry_index = 0
+        while not ret and retry_index < 10:
+            try:
+                ret = self.batch_load_seckill_gid(gid)
+                if ret:
+                    return ret
+            except Exception as e:
+                retry_index = retry_index + 1
+
+
     def batch_load_seckill_gid(self, gid=''):
+        app_id_h5st = '31c62'
+        body = {"gid":""}
+        time_long = str(get_timestamp_in_milli_sec(get_now_datetime()))
+
+        if gid:
+            body['gid'] = gid
+
+        h5st_data = {
+            "appId": app_id_h5st,
+            "body":body
+        }
+        h5st = self.send_h5st_request(self.sess, h5st_data)
+
         url = 'https://api.m.jd.com/api'
         payload = {
-            'callback': '',
-            '_': str(int(time.time() * 1000)),
             'appid': 'o2_channels',
             'functionId': 'pcMiaoShaAreaList',
             'client': 'pc',
             'clientVersion': '1.0.0',
-            'jsonp': '',
-            'body': '{}'
+            'body':json_to_str(body),
+            'h5st': h5st
         }
-
-        if gid:
-            payload['body'] = '{"gid":_gid}'.replace('_gid', str(gid))
 
         headers = {
             'User-Agent': self.user_agent,
+            'Origin': 'https://miaosha.jd.com',
             'Referer': 'https://miaosha.jd.com/',
         }
-        resp = self.sess.post(url=url, data=payload, headers=headers)
+        self.log_stream_error(h5st)
+        resp = self.sess.get(url=url, params=payload, headers=headers)
         resp_json = parse_json(resp.text)
         if not resp_json:
             raise RestfulException(error_dict['COMMON']['SECKILL_BATCH_LOAD_FAILURE'])
@@ -6394,7 +6534,7 @@ class JDSeckillService(object):
             """获取用户信息
             :return: 用户名
             """
-            url = 'http://www.yunshenjia.com/xianbao/index?keyword=&cat=0&discount=3&sort=1'
+            url = 'https://www.yunshenjia.com/xianbao/index?keyword=&cat=0&discount=3&sort=2'
             headers = {
                 'User-Agent': self.user_agent
             }

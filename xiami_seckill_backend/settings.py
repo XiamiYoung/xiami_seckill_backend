@@ -29,17 +29,17 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'localhost',
-    '8.142.17.25'
+    '39.98.48.38'
 ]
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080",
-    "http://8.142.17.25:1111"
+    "http://39.98.48.38:1111"
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'localhost:8080',
-    "http://8.142.17.25:1111"
+    "http://39.98.48.38:1111"
 ]
 
 # Application definition
@@ -135,7 +135,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'xiami_seckill',
         'USER': 'root',
-        'PASSWORD': 'Xucinn6u!',
+        'PASSWORD': '123456',
         'HOST': 'localhost', 
         'PORT': '3306',
     }
